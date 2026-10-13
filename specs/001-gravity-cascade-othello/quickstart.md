@@ -8,16 +8,16 @@
   # extract; keep DxLib.h, DxLib.lib, DxLib.dll in third_party/dxlib/
   ```
 
-## Build
+## Build (verified on this machine)
 ```bash
-cmake -B build -G "Visual Studio 17 2022"
-cmake --build build --config Release
+cmake -B build-ninja -G Ninja
+cmake --build build-ninja
 ```
-Expected: zero errors AND zero warnings (AGENT.md gate). If Japanese glyphs garble, switch literals to Shift-JIS per research R3.
+Expected: zero errors AND zero warnings (AGENT.md gate). If Japanese glyphs garble, switch literals to Shift-JIS per research R3. Note: CMake 4.x requires `enable_testing()` before `add_test` — already in CMakeLists.txt.
 
 ## Run tests
 ```bash
-ctest --test-dir build --output-on-failure
+ctest --test-dir build-ninja --output-on-failure
 ```
 Expected suites: board/gravity/flip, chain/anchor, cascade fixed-point, all 10 card effects incl. edge cases, AI legality + timing, seeded e2e self-play (Hard vs Easy completes with valid result < 60 s).
 

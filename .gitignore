@@ -1,5 +1,6 @@
-# CMake build artifacts
+# Build artifacts
 build/
+build-ninja/
 cmake-build-*/
 *.o
 *.obj

@@ -13,6 +13,7 @@ else()
 endif()
 
 option(BUILD_TESTS "Unit + e2e tests (dependency-free harness)." ON)
+enable_testing()  # CMake 4.xではadd_testの前に明示的にCTest有効化が必要
 
 # ─── DxLib (third_party/dxlib に解凍済み) ──────────────────────────────
 set(DXLIB_ADD_DIR "${CMAKE_SOURCE_DIR}/third_party/dxlib/dxlib_vc")
