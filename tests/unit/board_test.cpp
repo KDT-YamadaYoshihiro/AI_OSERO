@@ -1,94 +1,44 @@
-// ─── unit/board_test.cpp ──────────────────────────────────────────────
-// Board クラス単体テスト（Google Test）
+// T007+T009: gravity settle (FR-005) + initial setup (FR-006) + deck/hand (FR-014)
+#include "../harness/test.hpp"
+#include "../../src/core/rules.hpp"
 
-#include <gtest/gtest.h>
-#include "board.hpp"
-#include "stone.hpp"
+using namespace gco;
 
-using namespace game;
+int main() {
+    // FR-006: initial 4 stones settle to bottom of columns 3/4
+    GameState gs = createInitialState(42);
+    CHECK(gs.board.cells[idx(7, 3)].color == BLACK);
+    CHECK(gs.board.cells[idx(6, 3)].color == WHITE);
+    CHECK(gs.board.cells[idx(7, 4)].color == WHITE);
+    CHECK(gs.board.cells[idx(6, 4)].color == BLACK);
+    CHECK(gs.board.lowestEmpty(3) == 5);
+    CHECK(gs.board.topRow(3) == 6);
+    CHECK(!gs.board.columnFull(3));
+    CHECK(!gs.board.boardFull());
+    CHECK(gs.board.countStones(BLACK) == 2);
+    CHECK(gs.board.countStones(WHITE) == 2);
 
-namespace {
+    // FR-014: per-player deck 20 (10 types x2), initial hand 3
+    CHECK(gs.players[0].deck.size() + gs.players[0].hand.size() == 20);
+    CHECK(gs.players[0].hand.size() == 3);
+    CHECK(gs.players[1].deck.size() + gs.players[1].hand.size() == 20);
 
-TEST(BoardTest, Constructor_places_central_stones) {
-    Board board;
+    // Deterministic settle with gaps (FR-005)
+    GameState gs2 = createInitialState(1);
+    for (auto& c : gs2.board.cells) c = CellState{};
+    gs2.board.cells[idx(4, 2)].color = BLACK; // floating stones in col2
+    gs2.board.cells[idx(2, 2)].color = WHITE;
+    auto moved = gs2.board.settle();
+    CHECK(moved.size() == 2);
+    CHECK(gs2.board.cells[idx(7, 2)].color == BLACK); // stack order preserved bottom-to-top
+    CHECK(gs2.board.cells[idx(6, 2)].color == WHITE);
+    CHECK(gs2.board.cells[idx(4, 2)].color == EMPTY);
+    CHECK(gs2.board.settle().empty()); // idempotent
 
-    // 中央 4 マスに黒・白が交互配置されること
-    EXPECT_EQ(board.is_occupied(3, 3), true);
-    EXPECT_EQ(board.is_occupied(3, 4), true);
-    EXPECT_EQ(board.is_occupied(4, 3), true);
-    EXPECT_EQ(board.is_occupied(4, 4), true);
+    // Reproducibility: same seed → identical state (FR-025)
+    GameState a = createInitialState(777), b = createInitialState(777);
+    for (int i = 0; i < kBoardSize * kBoardSize; ++i) CHECK(a.board.cells[i].color == b.board.cells[i].color);
+    CHECK(a.players[0].hand == b.players[0].hand);
 
-    // 他のマスは空であること
-    EXPECT_TRUE(board.is_empty(0, 0));
+    return report();
 }
-
-TEST(BoardTest, PlaceStone_success_when_empty) {
-    Board board;
-    EXPECT_TRUE(board.place_stone("black", 1, 1));
-    EXPECT_FALSE(board.is_empty(1, 1));
-    EXPECT_TRUE(board.is_occupied(1, 1));
-}
-
-TEST(BoardTest, PlaceStone_fail_when_already_occupied) {
-    Board board;
-    // 同じ場所に再度配置しようとすると失敗（簡易実装：置き換えはしない）
-    bool result = board.place_stone("white", 3, 3);
-    EXPECT_EQ(result, true); // 実際には置き換わってしまうが、とりあえず OK
-}
-
-TEST(BoardTest, RemoveStone_success) {
-    Board board;
-    EXPECT_TRUE(board.is_occupied(3, 3));
-    EXPECT_TRUE(board.remove_stone_at(3, 3));
-    EXPECT_TRUE(board.is_empty(3, 3));
-}
-
-TEST(BoardTest, IsEmpty_boundary_check) {
-    Board board;
-    // 境界外は空とはみなさない（バウンダリーチェック）
-    EXPECT_FALSE(board.is_empty(-1, 0));
-    EXPECT_FALSE(board.is_empty(8, 0));
-    EXPECT_FALSE(board.is_empty(3, -1));
-}
-
-TEST(BoardTest, GetNeighbors_returns_8_directions) {
-    Board board;
-    auto neighbors = board.get_neighbors(4, 4);
-    EXPECT_EQ(neighbors.size(), 8U);
-}
-
-TEST(BoardTest, PathIsClear_both_empty_cells) {
-    Board board;
-    // 両端の空マスの間でもパスはクリア（簡易実装では線分上を走査）
-    bool path_clear = board.path_is_clear(0, 0, 1, 1);
-    EXPECT_TRUE(path_clear);
-}
-
-TEST(BoardTest, PathIsClear_blocked_by_own_stone) {
-    Board board;
-    // 自分の石は「壁」としてカウントしない（オセロルール：自分の石はブロックにならない）
-    board.place_stone("black", 0, 0);
-    bool path_clear = board.path_is_clear(0, 0, 1, 1);
-    // 簡易実装では「開始マス自体が石なら失敗」となるので、このテストはパスする
-}
-
-TEST(BoardTest, ToString_generates_ascii_art) {
-    Board board;
-    std::string result = board.to_string({{"black", "●"}, {"white", "○"}});
-    EXPECT_FALSE(result.empty());
-    // ASCII アート形式で出力されるか（簡易チェック）
-    EXPECT_TRUE(result.find("3") != std::string::npos);
-}
-
-TEST(BoardTest, IsOccupied_returns_true_for_stone) {
-    Board board;
-    board.place_stone("black", 2, 2);
-    EXPECT_TRUE(board.is_occupied(2, 2));
-}
-
-TEST(BoardTest, IsOccupied_returns_false_for_empty_cell) {
-    Board board;
-    EXPECT_FALSE(board.is_occupied(0, 0));
-}
-
-} // anonymous namespace

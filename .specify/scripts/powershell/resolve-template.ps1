@@ -1,12 +1,38 @@
-param($templateName)
-$rootPath = $PSScriptRoot / '../../..'
-$templateDir = Join-Path $rootPath 'templates'
-$templateFile = Join-Path $templateDir "$templateName.md"
+#!/usr/bin/env pwsh
 
-if (-not (Test-Path $templateFile)) {
-    Write-Error "Template not found: $templateFile"
+param(
+    [Parameter(Position=0)]
+    [string]$TemplateName,
+    [switch]$Json,
+    [switch]$Help
+)
+
+$ErrorActionPreference = 'Stop'
+
+if ($Help) {
+    Write-Output "Usage: resolve-template.ps1 <template-name> [-Json]"
+    exit 0
+}
+
+if (-not $TemplateName) {
+    [Console]::Error.WriteLine("ERROR: Template name is required")
     exit 1
 }
 
-$content = Get-Content -Path $templateFile -Raw -Encoding UTF8
-Write-Output $content
+. "$PSScriptRoot/common.ps1"
+
+$repoRoot = Get-RepoRoot
+$templateContent = Resolve-TemplateContent -TemplateName $TemplateName -RepoRoot $repoRoot
+if ($null -eq $templateContent) {
+    [Console]::Error.WriteLine("ERROR: Could not resolve required $TemplateName from the template override stack for $repoRoot")
+    exit 1
+}
+
+if ($Json) {
+    [PSCustomObject]@{
+        TEMPLATE_NAME = $TemplateName
+        TEMPLATE_CONTENT = $templateContent
+    } | ConvertTo-Json -Compress
+} else {
+    [Console]::Out.Write($templateContent)
+}

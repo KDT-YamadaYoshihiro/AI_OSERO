@@ -26,3 +26,9 @@ Thumbs.db
 .DS_Store
 *.log
 npm-debug.log.*
+
+# VS workspace state
+.vs/
+
+# DxLib third-party (1.4GB, download & extract locally — see quickstart.md)
+third_party/

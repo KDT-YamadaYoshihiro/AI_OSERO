@@ -1,78 +1,50 @@
----
-title: Othello Constitution
-description: The fundamental principles and rules of this new Othello variant.
-version: 1.0
-ratification_date: {{RATIFICATION_DATE}}
-later_amendments: []
----
+# [PROJECT_NAME] Constitution
+<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
 
-# ⚖️ Game Constitution
+## Core Principles
 
-## Preamble
+### [PRINCIPLE_1_NAME]
+<!-- Example: I. Library-First -->
+[PRINCIPLE_1_DESCRIPTION]
+<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
 
-> We, the players, do hereby establish and adopt these rules for a game
-> of pure brilliance, strategic depth, and delightful chaos. This
-> Constitution forms the bedrock upon which every move is built.
+### [PRINCIPLE_2_NAME]
+<!-- Example: II. CLI Interface -->
+[PRINCIPLE_2_DESCRIPTION]
+<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
 
----
+### [PRINCIPLE_3_NAME]
+<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
+[PRINCIPLE_3_DESCRIPTION]
+<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
 
-## Article I: The Board
+### [PRINCIPLE_4_NAME]
+<!-- Example: IV. Integration Testing -->
+[PRINCIPLE_4_DESCRIPTION]
+<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
 
-The board shall be:
-[ALL_CAPS_IDENTIFIER: BOARD_DESCRIPTION]
+### [PRINCIPLE_5_NAME]
+<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
+[PRINCIPLE_5_DESCRIPTION]
+<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
 
-## Article II: The Pieces
+## [SECTION_2_NAME]
+<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
 
-The pieces shall be:
-[ALL_CAPS_IDENTIFIER: PIECES]
+[SECTION_2_CONTENT]
+<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
 
-## Article III: Setup
+## [SECTION_3_NAME]
+<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
 
-The initial arrangement of the board is as follows:
-[ALL_CAPS_IDENTIFIER: SETUP]
+[SECTION_3_CONTENT]
+<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
 
-## Article IV: Turn Sequence
+## Governance
+<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-Turns proceed in the following order:
-[ALL_CAPS_IDENTIFIER: TURN_ORDER]
+[GOVERNANCE_RULES]
+<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
 
-## Article V: Placing a Piece
-
-A player may place a piece under these conditions:
-[ALL_CAPS_IDENTIFIER: PLACING_RULES]
-
-## Article VI: Capture Mechanics
-
-Captures occur through:
-[ALL_CAPS_IDENTIFIER: CAPTURE_RULES]
-
-## Article VII: Scoring
-
-At the end of the game (or at intermediate milestones):
-[ALL_CAPS_IDENTIFIER: SCORING]
-
-## Article VIII: Win Conditions
-
-A player wins by:
-[ALL_CAPS_IDENTIFIER: WIN_CONDITIONS]
-
-## Article IX: Special Abilities / Power-ups
-
-Players may activate special abilities or use power-ups under these conditions:
-[ALL_CAPS_IDENTIFIER: ABILITIES]
-
-## Article X: Interactions & Counters
-
-The following interactions are permitted:
-[ALL_CAPS_IDENTIFIER: INTERACTIONS]
-
-## Article XI: Time Limits & Turn Order Control
-
-Turns must be completed within:
-[ALL_CAPS_IDENTIFIER: TIME_LIMIT]
-
----
-
-## Appendix A: Glossary
-
-- [ALL_CAPS_IDENTIFIER: GLOSSARY_TERMS]
+**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
+<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
