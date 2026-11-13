@@ -1,5 +1,6 @@
 #include "cardflow/rules.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 
@@ -23,12 +24,6 @@ bool isEnemyStone(const Board& board, Position pos, Color owner)
     return stone.has_value() && stone->color != owner;
 }
 
-bool isProtectedStone(const Board& board, Position pos)
-{
-    const auto stone = board.stoneAt(pos);
-    return stone.has_value() && stone->isProtected();
-}
-
 Position step(Position pos, Position dir)
 {
     return Position{pos.row + dir.row, pos.col + dir.col};
@@ -36,6 +31,36 @@ Position step(Position pos, Position dir)
 
 // 4 本の軸（横・縦・右下がり斜め・右上がり斜め）の正方向
 constexpr std::array<Position, 4> kAxes{{{0, 1}, {1, 0}, {1, 1}, {-1, 1}}};
+
+enum class StrikeKind { Flip, Remove };
+
+StrikeResult strike(Board& board, std::span<const Position> targets, StrikeKind kind)
+{
+    StrikeResult result;
+    for (const auto& pos : targets) {
+        const auto stone = board.stoneAt(pos);
+        if (!stone.has_value()) {
+            continue;
+        }
+        if (stone->covered) {
+            ++result.blockedByCover;
+            continue;
+        }
+        if (stone->shielded) {
+            Stone updated = *stone;
+            updated.shielded = false;
+            if (board.replaceStone(pos, updated)) {
+                ++result.shieldsBroken;
+            }
+            continue;
+        }
+        const bool done = kind == StrikeKind::Flip ? board.flipStone(pos) : board.removeStone(pos);
+        if (done) {
+            ++result.affected;
+        }
+    }
+    return result;
+}
 
 } // namespace
 
@@ -52,34 +77,11 @@ std::vector<Position> findFlips(const Board& board, Position pos, Color mover)
             run.push_back(cur);
             cur = step(cur, dir);
         }
-        if (run.empty() || !isAnchor(board, cur, mover)) {
-            continue;
-        }
-        for (const auto& p : run) {
-            if (!isProtectedStone(board, p)) {
-                result.push_back(p);
-            }
+        if (!run.empty() && isAnchor(board, cur, mover)) {
+            result.insert(result.end(), run.begin(), run.end());
         }
     }
     return result;
-}
-
-std::optional<int> placeAndFlip(Board& board, Position pos, Color mover)
-{
-    if (!board.isEmpty(pos)) {
-        return std::nullopt;
-    }
-    const auto flips = findFlips(board, pos, mover);
-    if (!board.placeStone(pos, mover)) {
-        return std::nullopt;
-    }
-    int flipped = 0;
-    for (const auto& p : flips) {
-        if (board.flipStone(p)) {
-            ++flipped;
-        }
-    }
-    return flipped;
 }
 
 std::vector<Position> findCapturable(const Board& board, Color capturer)
@@ -114,24 +116,51 @@ std::vector<Position> findCapturable(const Board& board, Color capturer)
     std::vector<Position> result;
     for (int row = 0; row < Board::kSize; ++row) {
         for (int col = 0; col < Board::kSize; ++col) {
-            const Position pos{row, col};
-            if (marked[static_cast<std::size_t>(row)][static_cast<std::size_t>(col)] && !isProtectedStone(board, pos)) {
-                result.push_back(pos);
+            if (marked[static_cast<std::size_t>(row)][static_cast<std::size_t>(col)]) {
+                result.push_back(Position{row, col});
             }
         }
     }
     return result;
 }
 
-int captureAll(Board& board, Color capturer)
+bool isSandwiched(const Board& board, Position pos, Color capturer)
 {
-    int captured = 0;
-    for (const auto& pos : findCapturable(board, capturer)) {
-        if (board.removeStone(pos)) {
-            ++captured;
-        }
+    if (!isEnemyStone(board, pos, capturer)) {
+        return false;
     }
-    return captured;
+    const auto capturable = findCapturable(board, capturer);
+    return std::ranges::find(capturable, pos) != capturable.end();
+}
+
+StrikeResult strikeFlip(Board& board, std::span<const Position> targets)
+{
+    return strike(board, targets, StrikeKind::Flip);
+}
+
+StrikeResult strikeRemove(Board& board, std::span<const Position> targets)
+{
+    return strike(board, targets, StrikeKind::Remove);
+}
+
+std::optional<StrikeResult> placeAndFlip(Board& board, Position pos, Color mover)
+{
+    if (!board.placeStone(pos, mover)) {
+        return std::nullopt;
+    }
+    return flipFrom(board, pos, mover);
+}
+
+StrikeResult flipFrom(Board& board, Position pos, Color mover)
+{
+    const auto flips = findFlips(board, pos, mover);
+    return strikeFlip(board, flips);
+}
+
+StrikeResult captureAll(Board& board, Color capturer)
+{
+    const auto targets = findCapturable(board, capturer);
+    return strikeRemove(board, targets);
 }
 
 } // namespace cardflow::rules

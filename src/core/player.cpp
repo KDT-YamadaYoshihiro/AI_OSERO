@@ -55,4 +55,27 @@ bool Player::removeCard(CardType type)
     return true;
 }
 
+void Player::reservePlaces(int count) noexcept
+{
+    if (count <= 0) {
+        return;
+    }
+    m_reservedPlaces = std::min(kMaxReservedPlaces, m_reservedPlaces + count);
+}
+
+void Player::activateReservedPlaces() noexcept
+{
+    m_bonusPlaces = m_reservedPlaces;
+    m_reservedPlaces = 0;
+}
+
+bool Player::consumeBonusPlace() noexcept
+{
+    if (m_bonusPlaces <= 0) {
+        return false;
+    }
+    --m_bonusPlaces;
+    return true;
+}
+
 } // namespace cardflow
