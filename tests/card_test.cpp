@@ -1,73 +1,86 @@
 #include <gtest/gtest.h>
 
-#include <vector>
+#include <cstddef>
 
+#include "board_builder.hpp"
 #include "cardflow/card.hpp"
 
-using cardflow::CardCategory;
-using cardflow::cardInfo;
+using cardflow::Board;
 using cardflow::CardType;
-using cardflow::isBalancedHand;
+using cardflow::Color;
+using cardflow::kCardTypeCount;
+using cardflow::Position;
+using cardflow::Stone;
+using cardflow::test::makeBoard;
+namespace cf = cardflow;
 
 namespace {
 
-TEST(CardTest, CostsMatchSpecification)
+const Board kSample = makeBoard({"WB......", ".Bw.....", "..W.....", "........", "........", "........",
+                                 "........", "........"});
+
+TEST(CardTest, TableHasNamesAndDescriptions)
 {
-    EXPECT_EQ(cardInfo(CardType::Place).cost, 2);
-    EXPECT_EQ(cardInfo(CardType::Move).cost, 3);
-    EXPECT_EQ(cardInfo(CardType::Cover).cost, 2);
-    EXPECT_EQ(cardInfo(CardType::Burst).cost, 4);
-    EXPECT_EQ(cardInfo(CardType::Swap).cost, 3);
-    EXPECT_EQ(cardInfo(CardType::Block).cost, 3);
-    EXPECT_EQ(cardInfo(CardType::Shield).cost, 2);
-    EXPECT_EQ(cardInfo(CardType::Reversal).cost, 4);
-    EXPECT_EQ(cardInfo(CardType::Reserve).cost, 1);
-    EXPECT_EQ(cardInfo(CardType::Restore).cost, 1);
+    for (std::size_t i = 0; i < kCardTypeCount; ++i) {
+        const auto& info = cf::cardInfo(static_cast<CardType>(i));
+        EXPECT_FALSE(info.name.empty());
+        EXPECT_FALSE(info.description.empty());
+    }
+    EXPECT_FALSE(cf::cardInfo(CardType::Double).needsTarget);
+    EXPECT_FALSE(cf::cardInfo(CardType::Free).needsTarget);
+    EXPECT_TRUE(cf::cardInfo(CardType::Flip).needsTarget);
 }
 
-TEST(CardTest, CategoriesMatchConstitution)
+TEST(CardTest, GuardTargetsOwnUnguardedStone)
 {
-    EXPECT_EQ(cardInfo(CardType::Place).category, CardCategory::Green);
-    EXPECT_EQ(cardInfo(CardType::Move).category, CardCategory::Green);
-    EXPECT_EQ(cardInfo(CardType::Cover).category, CardCategory::Green);
-    EXPECT_EQ(cardInfo(CardType::Burst).category, CardCategory::Red);
-    EXPECT_EQ(cardInfo(CardType::Swap).category, CardCategory::Red);
-    EXPECT_EQ(cardInfo(CardType::Block).category, CardCategory::Blue);
-    EXPECT_EQ(cardInfo(CardType::Shield).category, CardCategory::Blue);
-    EXPECT_EQ(cardInfo(CardType::Reversal).category, CardCategory::Violet);
-    EXPECT_EQ(cardInfo(CardType::Reserve).category, CardCategory::Orange);
-    EXPECT_EQ(cardInfo(CardType::Restore).category, CardCategory::Yellow);
+    EXPECT_TRUE(cf::isValidCardTarget(CardType::Guard, kSample, Color::Black, Position{0, 1}));
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Guard, kSample, Color::Black, Position{0, 0}));  // 相手の石
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Guard, kSample, Color::White, Position{1, 2}));  // 守り済み
+    Board board = kSample;
+    ASSERT_TRUE(cf::applyCardTarget(CardType::Guard, board, Color::Black, Position{0, 1}));
+    EXPECT_EQ(board.stoneAt(Position{0, 1}), (Stone{Color::Black, true}));
 }
 
-TEST(CardTest, NameLookup)
+TEST(CardTest, WallTargetsEmptyCellNextToStone)
 {
-    EXPECT_EQ(cardInfo(CardType::Reversal).name, "Reversal");
-    EXPECT_EQ(cardInfo(CardType::Reversal).type, CardType::Reversal);
+    EXPECT_TRUE(cf::isValidCardTarget(CardType::Wall, kSample, Color::Black, Position{1, 0}));   // a1・b1 などの隣
+    EXPECT_TRUE(cf::isValidCardTarget(CardType::Wall, kSample, Color::White, Position{3, 3}));   // c3 の斜め隣
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Wall, kSample, Color::Black, Position{7, 7}));  // 八方に何もない
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Wall, kSample, Color::Black, Position{4, 4}));  // 2 マス離れている
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Wall, kSample, Color::Black, Position{0, 0}));  // 空マスではない
+    Board board = kSample;
+    EXPECT_FALSE(cf::applyCardTarget(CardType::Wall, board, Color::Black, Position{7, 7}));
+    ASSERT_TRUE(cf::applyCardTarget(CardType::Wall, board, Color::Black, Position{1, 0}));
+    EXPECT_TRUE(board.isWall(Position{1, 0}));
 }
 
-TEST(CardTest, BalancedHandAcceptsMixedCategories)
+TEST(CardTest, WallNextToWallOnlyIsNotAllowed)
 {
-    const std::vector hand{CardType::Place, CardType::Move, CardType::Burst};
-    EXPECT_TRUE(isBalancedHand(hand));
-    EXPECT_TRUE(isBalancedHand(std::vector<CardType>{}));
+    // 壁は石ではないので、壁の隣というだけでは置けない
+    const Board board = makeBoard({"#.......", "........", "........", "........", "........", "........",
+                                   "........", ".......B"});
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Wall, board, Color::Black, Position{0, 1}));
+    EXPECT_TRUE(cf::isValidCardTarget(CardType::Wall, board, Color::Black, Position{6, 6}));
 }
 
-TEST(CardTest, BalancedHandRejectsThreeGreen)
+TEST(CardTest, FlipTargetsOpponentStoneExceptCornerAndGuarded)
 {
-    const std::vector hand{CardType::Place, CardType::Move, CardType::Cover};
-    EXPECT_FALSE(isBalancedHand(hand));
+    EXPECT_TRUE(cf::isValidCardTarget(CardType::Flip, kSample, Color::Black, Position{2, 2}));
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Flip, kSample, Color::Black, Position{0, 0}));  // 角
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Flip, kSample, Color::Black, Position{1, 2}));  // 守り
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Flip, kSample, Color::Black, Position{0, 1}));  // 自分の石
+    Board board = kSample;
+    ASSERT_TRUE(cf::applyCardTarget(CardType::Flip, board, Color::Black, Position{2, 2}));
+    EXPECT_EQ(board.stoneAt(Position{2, 2})->color, Color::Black);
 }
 
-TEST(CardTest, BalancedHandRejectsTwoOfSingleLimitCategory)
+TEST(CardTest, NoTargetCardsRejectTargets)
 {
-    const std::vector hand{CardType::Reversal, CardType::Reversal};
-    EXPECT_FALSE(isBalancedHand(hand));
-}
-
-TEST(CardTest, BalancedHandRejectsTooManyCards)
-{
-    const std::vector hand{CardType::Place, CardType::Burst, CardType::Block, CardType::Restore};
-    EXPECT_FALSE(isBalancedHand(hand));
+    Board board = kSample;
+    EXPECT_FALSE(cf::isValidCardTarget(CardType::Double, board, Color::Black, Position{7, 7}));
+    EXPECT_FALSE(cf::applyCardTarget(CardType::Free, board, Color::Black, Position{7, 7}));
+    EXPECT_FALSE(cf::applyCardTarget(CardType::Flip, board, Color::Black, Position{0, 0}));
+    EXPECT_EQ(board.stoneAt(Position{0, 0})->color, Color::White);  // 失敗時は変更なし
 }
 
 } // namespace

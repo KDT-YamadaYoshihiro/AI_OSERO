@@ -1,10 +1,11 @@
 #include "cardflow/ai.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <limits>
+#include <vector>
 
-#include "cardflow/card_effects.hpp"
 #include "cardflow/rules.hpp"
 
 namespace cardflow::ai {
@@ -12,159 +13,111 @@ namespace cardflow::ai {
 namespace {
 
 constexpr int kWinScore = 1'000'000;
-constexpr int kStoneWeight = 10;
-constexpr int kEpWeight = 1;
-constexpr int kReservedPlaceWeight = 3;
-constexpr int kCornerWeight = 6;
-constexpr int kEdgeWeight = 1;
-constexpr int kProtectedWeight = 2;
-constexpr int kCapturableThreatWeight = 6;
-constexpr int kFlipThreatWeight = 4;
-constexpr int kCaptureChanceWeight = 3;
-constexpr int kFlipChanceWeight = 2;
-constexpr int kMaxMoveDistance = 3;
-
+constexpr int kMobilityWeight = 5;
+constexpr int kGuardWeight = 10;
+constexpr int kCardWeight = 15;
+constexpr int kEndgameEmpties = 12;
+constexpr int kEndgameStoneWeight = 10;
+constexpr int kSafeNearCornerWeight = 5;
 constexpr int kCells = Board::kSize * Board::kSize;
+
+// マスの重み（角が最も高く、角の隣は危険）
+constexpr std::array<std::array<int, Board::kSize>, Board::kSize> kSquareWeights{{
+    {100, -20, 10, 5, 5, 10, -20, 100},
+    {-20, -50, -2, -2, -2, -2, -50, -20},
+    {10, -2, 1, 1, 1, 1, -2, 10},
+    {5, -2, 1, 0, 0, 1, -2, 5},
+    {5, -2, 1, 0, 0, 1, -2, 5},
+    {10, -2, 1, 1, 1, 1, -2, 10},
+    {-20, -50, -2, -2, -2, -2, -50, -20},
+    {100, -20, 10, 5, 5, 10, -20, 100},
+}};
 
 Position cellAt(int index)
 {
     return Position{index / Board::kSize, index % Board::kSize};
 }
 
-bool isOwnStone(const Board& board, Position pos, Color color)
+// 角の隣のマスは、その角が埋まっていれば危険ではない
+int squareWeight(const Board& board, Position pos)
 {
-    const auto stone = board.stoneAt(pos);
-    return stone.has_value() && stone->color == color;
-}
-
-void addIfValid(std::vector<Action>& out, const Game& game, CardType card, std::vector<Position> targets)
-{
-    if (canApplyEffect(card, game.board(), game.currentPlayer(), targets)) {
-        out.push_back(Action{card, std::move(targets)});
+    const int weight = kSquareWeights[static_cast<std::size_t>(pos.row)][static_cast<std::size_t>(pos.col)];
+    if (weight >= 0) {
+        return weight;
     }
-}
-
-void enumerateFor(std::vector<Action>& out, const Game& game, CardType card)
-{
-    const Board& board = game.board();
-    const Color me = game.currentColor();
-    switch (card) {
-    case CardType::Place:
-        for (int a = 0; a < kCells; ++a) {
-            if (!board.isEmpty(cellAt(a))) {
-                continue;
-            }
-            for (int b = a + 1; b < kCells; ++b) {
-                addIfValid(out, game, card, {cellAt(a), cellAt(b)});
-            }
-        }
-        break;
-    case CardType::Move:
-        for (int a = 0; a < kCells; ++a) {
-            const Position from = cellAt(a);
-            if (!isOwnStone(board, from, me)) {
-                continue;
-            }
-            for (const auto& dir : Board::kDirections) {
-                for (int dist = 1; dist <= kMaxMoveDistance; ++dist) {
-                    addIfValid(out, game, card, {from, Position{from.row + dir.row * dist, from.col + dir.col * dist}});
-                }
-            }
-        }
-        break;
-    case CardType::Swap:
-        for (int a = 0; a < kCells; ++a) {
-            const Position own = cellAt(a);
-            if (!isOwnStone(board, own, me)) {
-                continue;
-            }
-            for (const auto& n : board.neighbors(own)) {
-                addIfValid(out, game, card, {own, n});
-            }
-        }
-        break;
-    case CardType::Block:
-    case CardType::Shield:
-    case CardType::Reversal:
-        for (int a = 0; a < kCells; ++a) {
-            addIfValid(out, game, card, {cellAt(a)});
-        }
-        break;
-    case CardType::Cover:
-    case CardType::Burst:
-    case CardType::Reserve:
-    case CardType::Restore:
-        addIfValid(out, game, card, {});
-        break;
+    const Position corner{pos.row < Board::kSize / 2 ? 0 : Board::kSize - 1,
+                          pos.col < Board::kSize / 2 ? 0 : Board::kSize - 1};
+    const bool nearCorner = std::abs(pos.row - corner.row) <= 1 && std::abs(pos.col - corner.col) <= 1;
+    if (nearCorner && !board.isEmpty(corner)) {
+        return kSafeNearCornerWeight;
     }
+    return weight;
 }
 
-bool isCorner(Position pos)
-{
-    const bool edgeRow = pos.row == 0 || pos.row == Board::kSize - 1;
-    const bool edgeCol = pos.col == 0 || pos.col == Board::kSize - 1;
-    return edgeRow && edgeCol;
-}
+// カードの使い方の候補（card が空なら使わない）
+struct CardOption {
+    std::optional<CardType> card;
+    std::optional<Position> target;
+};
 
-bool isEdge(Position pos)
+std::vector<CardOption> cardOptions(const Game& game)
 {
-    return pos.row == 0 || pos.row == Board::kSize - 1 || pos.col == 0 || pos.col == Board::kSize - 1;
-}
-
-bool isUnprotectedStone(const Board& board, Position pos)
-{
-    const auto stone = board.stoneAt(pos);
-    return stone.has_value() && !stone->isProtected();
-}
-
-// attacker の Burst で取られうる相手の石の数（保護中の石は除く）
-int capturableCount(const Board& board, Color attacker)
-{
-    int capturable = 0;
-    for (const auto& pos : rules::findCapturable(board, attacker)) {
-        if (isUnprotectedStone(board, pos)) {
-            ++capturable;
-        }
-    }
-    return capturable;
-}
-
-// attacker が 1 石置いたときに裏返せる相手の石の最大数（保護中の石は除く）
-int maxFlipCount(const Board& board, Color attacker)
-{
-    auto unprotected = [&](Position pos) { return isUnprotectedStone(board, pos); };
-    int maxFlips = 0;
-    for (int a = 0; a < kCells; ++a) {
-        const Position pos = cellAt(a);
-        if (!board.isEmpty(pos)) {
-            continue;
-        }
-        const auto flips = rules::findFlips(board, pos, attacker);
-        maxFlips = std::max(maxFlips, static_cast<int>(std::ranges::count_if(flips, unprotected)));
-    }
-    return maxFlips;
-}
-
-} // namespace
-
-std::vector<Action> enumerateActions(const Game& game)
-{
-    std::vector<Action> actions;
+    std::vector<CardOption> options{CardOption{}};
     std::array<bool, kCardTypeCount> seen{};
-    std::vector<CardType> candidates = game.currentPlayer().hand();
-    if (game.currentPlayer().bonusPlaces() > 0) {
-        candidates.push_back(CardType::Place);
-    }
-    for (const auto card : candidates) {
+    for (const auto card : game.hand(game.currentColor())) {
         auto& done = seen[static_cast<std::size_t>(card)];
-        if (done || !game.canPlay(card)) {
+        if (done || !game.canUseCard(card)) {
             continue;
         }
         done = true;
-        enumerateFor(actions, game, card);
+        if (cardInfo(card).needsTarget) {
+            for (const auto& target : game.cardTargets(card)) {
+                options.push_back(CardOption{card, target});
+            }
+        } else {
+            options.push_back(CardOption{card, std::nullopt});
+        }
     }
-    return actions;
+    return options;
 }
+
+// 自分の番を終えた局面の点数（強いは相手の最善の応手まで読む）
+int scoreAfterTurn(const Game& game, Color me, Difficulty difficulty)
+{
+    if (difficulty != Difficulty::Hard || game.isOver() || game.currentColor() == me) {
+        return evaluate(game, me);
+    }
+    const auto replies = game.placeableCells();
+    if (replies.empty()) {
+        Game passed = game;
+        (void)passed.pass();
+        return evaluate(passed, me);
+    }
+    int worst = std::numeric_limits<int>::max();
+    for (const auto& pos : replies) {
+        Game reply = game;
+        (void)reply.place(pos);
+        worst = std::min(worst, evaluate(reply, me));
+    }
+    return worst;
+}
+
+// pos に置いたときの点数（連打で続けて置けるなら、続きの最善手まで含める）
+int scorePlacement(const Game& game, Position pos, Color me, Difficulty difficulty)
+{
+    Game next = game;
+    (void)next.place(pos);
+    if (!next.isOver() && next.currentColor() == me && next.placedThisTurn() > 0) {
+        int best = std::numeric_limits<int>::min();
+        for (const auto& second : next.placeableCells()) {
+            best = std::max(best, scorePlacement(next, second, me, difficulty));
+        }
+        return best;
+    }
+    return scoreAfterTurn(next, me, difficulty);
+}
+
+} // namespace
 
 std::string_view difficultyName(Difficulty difficulty) noexcept
 {
@@ -176,80 +129,75 @@ std::string_view difficultyName(Difficulty difficulty) noexcept
     return "";
 }
 
-int evaluate(const Game& game, Color me, Difficulty difficulty)
+int evaluate(const Game& game, Color me)
 {
+    const Board& board = game.board();
     const Color opponent = opponentOf(me);
+    const int stoneDiff = board.countStones(me) - board.countStones(opponent);
     if (const auto& result = game.result()) {
         if (!result->winner.has_value()) {
             return 0;
         }
-        return *result->winner == me ? kWinScore : -kWinScore;
+        return *result->winner == me ? kWinScore + stoneDiff : -kWinScore + stoneDiff;
     }
 
-    const Board& board = game.board();
-    const Player& self = game.player(me);
-    int score = (board.countStones(me) - board.countStones(opponent)) * kStoneWeight;
-    score += self.ep() * kEpWeight;
-    score += (self.reservedPlaces() + self.bonusPlaces()) * kReservedPlaceWeight;
-    // 相手の次の番の脅威（Burst で取られる・Place で裏返される）
-    score -= capturableCount(board, opponent) * kCapturableThreatWeight;
-    score -= maxFlipCount(board, opponent) * kFlipThreatWeight;
-
-    if (difficulty != Difficulty::Hard) {
-        return score;
-    }
-
-    // 自分の次の番の好機
-    score += capturableCount(board, me) * kCaptureChanceWeight;
-    score += maxFlipCount(board, me) * kFlipChanceWeight;
-
-    for (int a = 0; a < kCells; ++a) {
-        const Position pos = cellAt(a);
+    int score = 0;
+    for (int i = 0; i < kCells; ++i) {
+        const Position pos = cellAt(i);
         const auto stone = board.stoneAt(pos);
         if (!stone.has_value()) {
             continue;
         }
         const int sign = stone->color == me ? 1 : -1;
-        if (isCorner(pos)) {
-            score += sign * kCornerWeight;
-        } else if (isEdge(pos)) {
-            score += sign * kEdgeWeight;
+        score += sign * squareWeight(board, pos);
+        if (stone->guarded) {
+            score += sign * kGuardWeight;
         }
-        if (stone->color == me && stone->isProtected()) {
-            score += kProtectedWeight;
-        }
+    }
+    score += (rules::countLegalMoves(board, me) - rules::countLegalMoves(board, opponent)) * kMobilityWeight;
+    score += (static_cast<int>(game.hand(me).size()) - static_cast<int>(game.hand(opponent).size())) * kCardWeight;
+    if (board.countEmpty() <= kEndgameEmpties) {
+        score += stoneDiff * kEndgameStoneWeight;
     }
     return score;
 }
 
 CpuPlayer::CpuPlayer(Difficulty difficulty, std::uint32_t seed) : m_difficulty(difficulty), m_rng(seed) {}
 
-std::optional<Action> CpuPlayer::chooseAction(const Game& game)
+Action CpuPlayer::chooseAction(const Game& game)
 {
     if (game.isOver()) {
-        return std::nullopt;
+        return Action{};
     }
-    const auto actions = enumerateActions(game);
-    if (actions.empty()) {
-        return std::nullopt;
-    }
+    return m_difficulty == Difficulty::Easy ? chooseRandom(game) : chooseBest(game);
+}
 
-    if (m_difficulty == Difficulty::Easy) {
-        std::uniform_int_distribution<std::size_t> pick(0, actions.size() - 1);
-        return actions[pick(m_rng)];
+Action CpuPlayer::chooseRandom(const Game& game)
+{
+    const auto options = cardOptions(game);
+    const auto cells = game.placeableCells();
+    // 置けないときは半々、置けるときは 4 回に 1 回カードを使う
+    std::uniform_int_distribution<int> percent(0, 99);
+    const int chance = cells.empty() ? 50 : 25;
+    if (options.size() > 1 && percent(m_rng) < chance) {
+        std::uniform_int_distribution<std::size_t> pick(1, options.size() - 1);
+        const auto& option = options[pick(m_rng)];
+        return Action{Action::Kind::UseCard, *option.card, option.target, {}};
     }
+    if (cells.empty()) {
+        return Action{};
+    }
+    std::uniform_int_distribution<std::size_t> pick(0, cells.size() - 1);
+    return Action{Action::Kind::Place, CardType::Double, std::nullopt, cells[pick(m_rng)]};
+}
 
+Action CpuPlayer::chooseBest(const Game& game)
+{
     const Color me = game.currentColor();
-    const int baseline = evaluate(game, me, m_difficulty);
     int bestScore = std::numeric_limits<int>::min();
-    std::optional<Action> best;
+    Action best{};
     int ties = 0;
-    for (const auto& action : actions) {
-        Game trial = game;
-        if (!trial.play(action.card, action.targets).ok()) {
-            continue;
-        }
-        const int score = evaluate(trial, me, m_difficulty);
+    auto consider = [&](int score, const Action& action) {
         if (score > bestScore) {
             bestScore = score;
             best = action;
@@ -262,11 +210,46 @@ std::optional<Action> CpuPlayer::chooseAction(const Game& game)
                 best = action;
             }
         }
-    }
-    if (!best.has_value() || bestScore <= baseline) {
-        return std::nullopt;  // 良くなる手がなければターンを終える
+    };
+
+    for (const auto& option : cardOptions(game)) {
+        Game trial = game;
+        if (option.card.has_value() && trial.useCard(*option.card, option.target) != CardStatus::Ok) {
+            continue;
+        }
+        // 最初の一歩: カードを使うならカード、使わないなら置く・パス
+        const Action cardStep{Action::Kind::UseCard, option.card.value_or(CardType::Double), option.target, {}};
+        if (trial.isOver()) {
+            consider(evaluate(trial, me), cardStep);
+            continue;
+        }
+        const auto cells = trial.placeableCells();
+        if (cells.empty()) {
+            Game passed = trial;
+            (void)passed.pass();
+            consider(scoreAfterTurn(passed, me, m_difficulty), option.card.has_value() ? cardStep : Action{});
+            continue;
+        }
+        for (const auto& pos : cells) {
+            const int score = scorePlacement(trial, pos, me, m_difficulty);
+            consider(score, option.card.has_value() ? cardStep
+                                                    : Action{Action::Kind::Place, CardType::Double, std::nullopt, pos});
+        }
     }
     return best;
+}
+
+bool applyAction(Game& game, const Action& action)
+{
+    switch (action.kind) {
+    case Action::Kind::UseCard:
+        return game.useCard(action.card, action.target) == CardStatus::Ok;
+    case Action::Kind::Place:
+        return game.place(action.pos).has_value();
+    case Action::Kind::Pass:
+        return game.pass();
+    }
+    return false;
 }
 
 } // namespace cardflow::ai

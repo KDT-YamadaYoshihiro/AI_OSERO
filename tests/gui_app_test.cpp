@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -9,6 +10,7 @@
 #include "cardflow/app/gui_app.hpp"
 #include "cardflow/app/layout.hpp"
 #include "deck_builder.hpp"
+#include "game_builder.hpp"
 
 using cardflow::Board;
 using cardflow::CardType;
@@ -21,12 +23,13 @@ using cardflow::app::GuiApp;
 using cardflow::app::Rect;
 using cardflow::app::Screen;
 using cardflow::test::makeBoard;
+using cardflow::test::cardsReady;
 using cardflow::test::scriptedDeck;
 namespace app = cardflow::app;
 
 namespace {
 
-const std::vector<CardType> kFiller{CardType::Block, CardType::Shield, CardType::Restore};
+using Cards = std::vector<CardType>;
 
 void clickRect(GuiApp& gui, const Rect& rect)
 {
@@ -38,19 +41,22 @@ void clickCell(GuiApp& gui, Position pos)
     clickRect(gui, app::cellRect(pos));
 }
 
-bool logContains(const GuiApp& gui, std::string_view text)
+bool has(std::string_view text, std::string_view part)
 {
-    return std::ranges::any_of(gui.log(), [&](const std::string& line) { return line.find(text) != std::string::npos; });
+    return text.find(part) != std::string_view::npos;
 }
 
-// 初期盤面・指定の手札で 2 人対戦を始める
-GuiApp startTwoPlayer(const std::vector<CardType>& black, const std::vector<CardType>& white = kFiller,
-                      const Board& board = Board::createInitial())
+// 指定の手札で 2 人対戦を始める
+GuiApp startTwoPlayer(const Cards& black = {}, const Cards& white = {}, const Board& board = Board::createInitial())
 {
     GuiApp gui(1);
-    gui.startGame(Game(board, scriptedDeck(black, white, kFiller)), GameOptions{});
+    gui.startGame(cardsReady(Game(board, scriptedDeck(black, white))), GameOptions{});
     return gui;
 }
+
+// どちらも置けない盤面
+const Board kStuck = makeBoard({"W.......", "........", "........", "........", "........", "........",
+                                "........", ".......B"});
 
 // ─── メニュー ────────────────────────────────────────────────────────
 
@@ -80,6 +86,7 @@ TEST(GuiAppTest, CpuMenuChoosesDifficultyAndColor)
     EXPECT_EQ(gui.options().difficulty, Difficulty::Hard);
     EXPECT_EQ(gui.playerLabel(Color::Black), "黒（CPU・強い）");
     EXPECT_EQ(gui.playerLabel(Color::White), "白（あなた）");
+    EXPECT_EQ(gui.handOwner(), Color::White);  // CPU の番でも、下にはあなたの手札
 }
 
 TEST(GuiAppTest, BackButtonAndRightClickGoBack)
@@ -97,127 +104,131 @@ TEST(GuiAppTest, BackButtonAndRightClickGoBack)
 TEST(GuiAppTest, QuitButtonRequestsQuit)
 {
     GuiApp gui(1);
-    EXPECT_FALSE(gui.quitRequested());
     clickRect(gui, app::menuButtonRect(2));
     EXPECT_TRUE(gui.quitRequested());
 }
 
-// ─── カードの使用 ────────────────────────────────────────────────────
+// ─── 石を置く ────────────────────────────────────────────────────────
 
-TEST(GuiAppTest, PlaceIsPlayedByChoosingTwoCells)
+TEST(GuiAppTest, ClickPlaceableCellPlacesStone)
 {
-    GuiApp gui = startTwoPlayer({CardType::Place, CardType::Block, CardType::Restore});
-    ASSERT_EQ(gui.handSlots().size(), 3u);
-    clickRect(gui, app::handCardRect(0));
-    ASSERT_TRUE(gui.selection().has_value());
-    EXPECT_EQ(gui.selection()->card, CardType::Place);
-    EXPECT_EQ(gui.candidates().size(), 56u);  // 空マスすべて
+    GuiApp gui = startTwoPlayer();
+    EXPECT_EQ(gui.placeHints().size(), 4u);
+    EXPECT_TRUE(has(gui.hint(), "光っているマスに石を置いてください"));
+    clickCell(gui, Position{0, 0});  // 置けないマスは無視
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);
 
-    clickCell(gui, Position{0, 0});
-    ASSERT_TRUE(gui.selection().has_value());
-    EXPECT_EQ(gui.selection()->targets.size(), 1u);
-    EXPECT_EQ(gui.candidates().size(), 55u);
-
-    clickCell(gui, Position{7, 7});
-    EXPECT_FALSE(gui.selection().has_value());
-    const Game& game = *gui.game();
-    EXPECT_EQ(game.board().countStones(Color::Black) + game.board().countStones(Color::White), 10);
-    EXPECT_TRUE(game.hasPlayedCardThisTurn());
-    EXPECT_EQ(gui.lastActionCells(), (std::vector<Position>{{0, 0}, {7, 7}}));
-    EXPECT_TRUE(logContains(gui, "黒：Place a1 h8"));
-    // 通常のカードは 1 ターン 1 枚
-    EXPECT_TRUE(std::ranges::none_of(gui.handSlots(), [](const auto& slot) { return slot.playable; }));
+    clickCell(gui, Position{2, 3});  // d3
+    EXPECT_EQ(gui.game()->currentColor(), Color::White);
+    EXPECT_EQ(gui.message(), "黒：d3 に置きました（1 個裏返し）");
+    EXPECT_EQ(gui.handOwner(), Color::White);  // 2 人対戦では手番の人の手札
+    EXPECT_TRUE(has(gui.hint(), "白の番"));
 }
 
-TEST(GuiAppTest, NonCandidateCellIsIgnored)
+// ─── カード ──────────────────────────────────────────────────────────
+
+TEST(GuiAppTest, CardsAreLockedAtFirst)
 {
-    GuiApp gui = startTwoPlayer({CardType::Place, CardType::Block, CardType::Restore});
+    GuiApp gui(1);
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({CardType::Flip, CardType::Wall}, {})), GameOptions{});
+    EXPECT_EQ(gui.lockedTurnIndex(), 1);
+    EXPECT_FALSE(gui.isCardUsable(0));
+    EXPECT_TRUE(has(gui.hint(), "（カードは 4 回目の番から）"));
     clickRect(gui, app::handCardRect(0));
-    clickCell(gui, Position{3, 3});  // 石がある
-    ASSERT_TRUE(gui.selection().has_value());
-    EXPECT_TRUE(gui.selection()->targets.empty());
+    EXPECT_FALSE(gui.selectedSlot().has_value());
+    EXPECT_EQ(gui.message(), "カードは自分の番の 4 回目から使えます（いまは 1 回目）");
 }
 
-TEST(GuiAppTest, ZeroTargetCardUsesButton)
+TEST(GuiAppTest, LockNoteDuringCpuTurnShowsNextTurn)
 {
-    GuiApp gui = startTwoPlayer({CardType::Restore, CardType::Block, CardType::Shield});
-    EXPECT_FALSE(gui.canUseSelected());
-    clickRect(gui, app::handCardRect(0));
-    ASSERT_TRUE(gui.canUseSelected());
-    EXPECT_TRUE(gui.candidates().empty());
-    clickRect(gui, app::useButtonRect());
-    EXPECT_EQ(gui.game()->player(Color::Black).ep(), 4);  // 3 - 1 + 2
-    EXPECT_TRUE(logContains(gui, "Restore"));
+    GuiApp gui(1);
+    GameOptions options;
+    options.cpuColor = Color::Black;
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({}, {})), options);
+    EXPECT_EQ(gui.lockedTurnIndex(), 1);  // あなた（白）の次の番は 1 回目
+    EXPECT_EQ(gui.cardLockNote(), "カードは自分の番の 4 回目から使えます（次が 1 回目）");
 }
 
-TEST(GuiAppTest, ClickingSelectedCardOrRightClickCancels)
+TEST(GuiAppTest, TargetCardHighlightsAndUsesOnClick)
 {
-    GuiApp gui = startTwoPlayer({CardType::Block, CardType::Shield, CardType::Restore});
+    GuiApp gui = startTwoPlayer({CardType::Flip, CardType::Wall});
+    EXPECT_TRUE(gui.isCardUsable(0));
+    EXPECT_TRUE(has(gui.hint(), "カードも使えます"));
     clickRect(gui, app::handCardRect(0));
-    ASSERT_TRUE(gui.selection().has_value());
-    EXPECT_EQ(gui.candidates().size(), 56u);
+    EXPECT_EQ(gui.selectedSlot(), 0);
+    EXPECT_EQ(gui.targetCells(), (std::vector<Position>{{3, 3}, {4, 4}}));
+    EXPECT_TRUE(has(gui.hint(), "奪う相手の石"));
+
+    clickCell(gui, Position{3, 3});
+    EXPECT_FALSE(gui.selectedSlot().has_value());
+    EXPECT_EQ(gui.message(), "黒：「反転」を d4 に使いました");
+    EXPECT_EQ(gui.shownHand(), (Cards{CardType::Wall}));
+    EXPECT_FALSE(gui.isCardUsable(0));  // 1 ターン 1 枚
     clickRect(gui, app::handCardRect(0));
-    EXPECT_FALSE(gui.selection().has_value());
-    EXPECT_TRUE(gui.candidates().empty());
+    EXPECT_EQ(gui.message(), "カードは 1 ターンに 1 枚までです");
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);  // まだ置いていない
+}
+
+TEST(GuiAppTest, NoTargetCardUsesOnSecondClick)
+{
+    GuiApp gui = startTwoPlayer({CardType::Double});
+    clickRect(gui, app::handCardRect(0));
+    EXPECT_EQ(gui.selectedSlot(), 0);
+    EXPECT_TRUE(gui.targetCells().empty());
+    EXPECT_TRUE(has(gui.hint(), "もう一度クリックすると「連打」を使います"));
+    EXPECT_EQ(gui.game()->placementsLeft(), 1);
+    clickRect(gui, app::handCardRect(0));
+    EXPECT_EQ(gui.game()->placementsLeft(), 2);
+    EXPECT_TRUE(gui.shownHand().empty());
+
+    clickCell(gui, Position{2, 3});
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);
+    EXPECT_TRUE(has(gui.hint(), "もう 1 つ置いてください"));
+}
+
+TEST(GuiAppTest, OtherClickOrRightClickCancelsSelection)
+{
+    GuiApp gui = startTwoPlayer({CardType::Flip, CardType::Guard});
+    clickRect(gui, app::handCardRect(0));
+    clickCell(gui, Position{0, 0});  // 対象ではないマス
+    EXPECT_FALSE(gui.selectedSlot().has_value());
+    EXPECT_EQ(gui.shownHand().size(), 2u);
 
     clickRect(gui, app::handCardRect(1));
-    ASSERT_TRUE(gui.selection().has_value());
-    EXPECT_EQ(gui.candidates().size(), 4u);  // Shield は自分の石 4 つ
+    EXPECT_EQ(gui.targetCells().size(), 2u);  // 守り: 自分の石 2 つ
     gui.cancel();
-    EXPECT_FALSE(gui.selection().has_value());
+    EXPECT_FALSE(gui.selectedSlot().has_value());
+    EXPECT_TRUE(gui.targetCells().empty());
 }
 
-TEST(GuiAppTest, UnplayableCardShowsReason)
-{
-    GuiApp gui = startTwoPlayer({CardType::Burst, CardType::Block, CardType::Restore});
-    EXPECT_FALSE(gui.handSlots()[0].playable);  // Burst は EP 4、開始時は 3
-    clickRect(gui, app::handCardRect(0));
-    EXPECT_FALSE(gui.selection().has_value());
-    EXPECT_TRUE(logContains(gui, "EP が足りません"));
-}
+// ─── パス ────────────────────────────────────────────────────────────
 
-TEST(GuiAppTest, EndTurnButtonPassesTurn)
+TEST(GuiAppTest, PassButtonWhenStuckWithCards)
 {
-    GuiApp gui = startTwoPlayer({CardType::Block, CardType::Shield, CardType::Restore});
-    ASSERT_TRUE(gui.canEndTurn());
-    clickRect(gui, app::endTurnButtonRect());
+    GuiApp gui = startTwoPlayer({CardType::Free}, {}, kStuck);
+    EXPECT_TRUE(gui.showsPassButton());
+    EXPECT_TRUE(has(gui.hint(), "カードを使うか、パスしてください"));
+    gui.update(5000);  // カードがあるので自動ではパスしない
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);
+    clickRect(gui, app::passButtonRect());
     EXPECT_EQ(gui.game()->currentColor(), Color::White);
-    EXPECT_TRUE(logContains(gui, "黒：パス"));
-    EXPECT_TRUE(logContains(gui, "白の番"));
+    EXPECT_EQ(gui.message(), "黒：パス");
 }
 
-TEST(GuiAppTest, BonusPlaceAppearsAsExtraSlot)
+TEST(GuiAppTest, AutoPassWhenStuckWithoutCards)
 {
-    GuiApp gui = startTwoPlayer({CardType::Reserve, CardType::Block, CardType::Shield});
-    clickRect(gui, app::handCardRect(0));
-    clickRect(gui, app::useButtonRect());
-    EXPECT_NE(gui.hint().find("ターンを終えます"), std::string::npos);  // ほかに使えるカードがない
-    clickRect(gui, app::endTurnButtonRect());  // 黒: ターン終了（自動を待たない）
-    EXPECT_TRUE(logContains(gui, "黒：ターン終了"));
-    clickRect(gui, app::endTurnButtonRect());  // 白: パス
-    ASSERT_EQ(gui.game()->currentColor(), Color::Black);
-    const auto& slots = gui.handSlots();
-    ASSERT_EQ(slots.size(), 4u);
-    EXPECT_TRUE(slots[3].bonus);
-    EXPECT_EQ(slots[3].card, CardType::Place);
-    EXPECT_EQ(slots[3].count, 2);
-    EXPECT_TRUE(slots[3].playable);
-}
-
-// ─── 自動で進む手番 ──────────────────────────────────────────────────
-
-TEST(GuiAppTest, HumanWithoutPlayableCardsPassesAutomatically)
-{
-    // どれも EP 4 で、開始時の EP 3 では使えない
-    GuiApp gui = startTwoPlayer({CardType::Burst, CardType::Reversal, CardType::Burst});
-    EXPECT_TRUE(gui.canEndTurn());  // 待たずにパスしてもよい
-    EXPECT_NE(gui.hint().find("パス"), std::string::npos);
+    GuiApp gui = startTwoPlayer({}, {}, kStuck);
+    EXPECT_TRUE(has(gui.hint(), "パスします"));
     gui.update(GuiApp::kStepDelayMs - 1);
     EXPECT_EQ(gui.game()->currentColor(), Color::Black);
     gui.update(1);
     EXPECT_EQ(gui.game()->currentColor(), Color::White);
-    EXPECT_TRUE(logContains(gui, "使えるカードがないためパス"));
+    EXPECT_EQ(gui.message(), "黒：置ける場所がないのでパス");
+    gui.update(GuiApp::kStepDelayMs);  // 白も置けない → 終局
+    EXPECT_TRUE(gui.game()->isOver());
 }
+
+// ─── CPU ─────────────────────────────────────────────────────────────
 
 TEST(GuiAppTest, CpuPlaysItsTurnOverTime)
 {
@@ -225,34 +236,28 @@ TEST(GuiAppTest, CpuPlaysItsTurnOverTime)
     GameOptions options;
     options.cpuColor = Color::Black;
     options.difficulty = Difficulty::Normal;
-    gui.startGame(Game(Board::createInitial(), scriptedDeck({CardType::Place, CardType::Block, CardType::Restore},
-                                                            kFiller, kFiller)),
-                  options);
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({}, {})), options);
     EXPECT_FALSE(gui.isHumanTurn());
-    EXPECT_FALSE(gui.canEndTurn());
-    clickRect(gui, app::handCardRect(0));  // CPU の手番は操作できない
-    EXPECT_FALSE(gui.selection().has_value());
-    EXPECT_NE(gui.hint().find("考えています"), std::string::npos);
+    EXPECT_TRUE(has(gui.hint(), "考えています"));
+    EXPECT_TRUE(gui.placeHints().empty());
+    clickCell(gui, Position{2, 3});  // CPU の番は操作できない
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);
 
-    for (int step = 0; step < 10 && gui.game()->currentColor() == Color::Black && !gui.game()->isOver(); ++step) {
-        gui.update(GuiApp::kStepDelayMs);
-    }
+    gui.update(GuiApp::kStepDelayMs);
     EXPECT_EQ(gui.game()->currentColor(), Color::White);
-    EXPECT_TRUE(logContains(gui, "黒（CPU・普通）：Place"));
+    EXPECT_TRUE(has(gui.message(), "黒（CPU・普通）："));
     EXPECT_TRUE(gui.isHumanTurn());
+    EXPECT_FALSE(gui.placeHints().empty());
 }
 
 // ─── 終局 ────────────────────────────────────────────────────────────
 
 GuiApp startFinishedGame()
 {
-    // Place で最後の白石を挟むと白が全滅する
     const Board board = makeBoard({"BW......", "........", "........", "........", "........", "........",
                                    "........", "........"});
-    GuiApp gui = startTwoPlayer({CardType::Place, CardType::Block, CardType::Restore}, kFiller, board);
-    clickRect(gui, app::handCardRect(0));
-    clickCell(gui, Position{0, 2});
-    clickCell(gui, Position{7, 7});
+    GuiApp gui = startTwoPlayer({}, {}, board);
+    clickCell(gui, Position{0, 2});  // 白が全滅
     return gui;
 }
 
@@ -260,11 +265,9 @@ TEST(GuiAppTest, GameOverShowsResult)
 {
     GuiApp gui = startFinishedGame();
     ASSERT_TRUE(gui.game()->isOver());
-    EXPECT_EQ(gui.resultText(), "黒 4 対 白 0 … 黒の勝ち！");
+    EXPECT_EQ(gui.resultText(), "黒 3 対 白 0 … 黒の勝ち！");
     EXPECT_EQ(gui.hint(), gui.resultText());
-    EXPECT_TRUE(gui.handSlots().empty());
-    EXPECT_FALSE(gui.canEndTurn());
-    EXPECT_TRUE(logContains(gui, "ゲーム終了"));
+    EXPECT_FALSE(gui.showsPassButton());
 }
 
 TEST(GuiAppTest, RetryStartsNewGameWithNewSeed)
@@ -275,7 +278,7 @@ TEST(GuiAppTest, RetryStartsNewGameWithNewSeed)
     ASSERT_EQ(gui.screen(), Screen::Playing);
     EXPECT_FALSE(gui.game()->isOver());
     EXPECT_NE(gui.seed(), oldSeed);
-    EXPECT_EQ(gui.game()->board().countStones(Color::Black), 4);
+    EXPECT_EQ(gui.game()->board().countStones(Color::Black), 2);
 }
 
 TEST(GuiAppTest, ToTitleReturnsToMenu)
@@ -284,6 +287,160 @@ TEST(GuiAppTest, ToTitleReturnsToMenu)
     clickRect(gui, app::toTitleButtonRect());
     EXPECT_EQ(gui.screen(), Screen::Title);
     EXPECT_EQ(gui.game(), nullptr);
+}
+
+// ─── メニューバー・一時停止・投了 ────────────────────────────────────
+
+GuiApp startCpuGame(Color cpuColor, const std::filesystem::path& savePath = {})
+{
+    GuiApp gui(1, savePath);
+    GameOptions options;
+    options.cpuColor = cpuColor;
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({}, {})), options);
+    return gui;
+}
+
+TEST(GuiAppTest, MenuBarShownOnlyWhilePlaying)
+{
+    GuiApp title(1);
+    EXPECT_FALSE(title.showsMenuBar());
+    GuiApp gui = startTwoPlayer();
+    EXPECT_TRUE(gui.showsMenuBar());
+    EXPECT_EQ(GuiApp::menuBarLabels().size(), static_cast<std::size_t>(app::layout::kMenuBarButtons));
+    gui = startFinishedGame();
+    EXPECT_FALSE(gui.showsMenuBar());
+}
+
+TEST(GuiAppTest, PauseStopsCpuAndBlocksBoard)
+{
+    GuiApp gui = startCpuGame(Color::Black);
+    clickRect(gui, app::menuBarButtonRect(0));  // 一時停止
+    ASSERT_EQ(gui.overlay(), app::Overlay::Paused);
+    EXPECT_EQ(gui.overlayTitle(), "一時停止中");
+    gui.update(GuiApp::kStepDelayMs * 5);
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);  // CPU は止まっている
+
+    clickRect(gui, app::overlayButtonRect(0));  // 再開
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+    gui.update(GuiApp::kStepDelayMs);
+    EXPECT_EQ(gui.game()->currentColor(), Color::White);
+}
+
+TEST(GuiAppTest, EscapeTogglesPauseAndRightClickResumes)
+{
+    GuiApp gui = startTwoPlayer();
+    gui.togglePause();
+    EXPECT_EQ(gui.overlay(), app::Overlay::Paused);
+    clickCell(gui, Position{2, 3});  // 一時停止中は置けない
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);
+    EXPECT_FALSE(gui.showsPassButton());
+    gui.togglePause();
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+    gui.togglePause();
+    gui.cancel();
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+}
+
+TEST(GuiAppTest, ResignAsksForConfirmation)
+{
+    GuiApp gui = startCpuGame(Color::White);
+    clickRect(gui, app::menuBarButtonRect(2));  // 投了
+    ASSERT_EQ(gui.overlay(), app::Overlay::ConfirmResign);
+    clickRect(gui, app::overlayButtonRect(1));  // いいえ
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+    EXPECT_FALSE(gui.game()->isOver());
+
+    clickRect(gui, app::menuBarButtonRect(2));
+    clickRect(gui, app::overlayButtonRect(0));  // はい
+    ASSERT_TRUE(gui.game()->isOver());
+    EXPECT_EQ(gui.game()->result()->resignedBy, Color::Black);
+    EXPECT_EQ(gui.resultText(), "黒（あなた）が投了 … 白（CPU・普通）の勝ち！");
+    EXPECT_EQ(gui.message(), "黒（あなた）が投了しました");
+}
+
+TEST(GuiAppTest, ResignDuringCpuTurnIsYours)
+{
+    GuiApp gui = startCpuGame(Color::Black);  // CPU が先手
+    clickRect(gui, app::menuBarButtonRect(0));
+    clickRect(gui, app::overlayButtonRect(2));  // 一時停止 → 投了
+    ASSERT_EQ(gui.overlay(), app::Overlay::ConfirmResign);
+    clickRect(gui, app::overlayButtonRect(0));
+    EXPECT_EQ(gui.game()->result()->resignedBy, Color::White);
+}
+
+// ─── 中断・再開 ──────────────────────────────────────────────────────
+
+class GuiAppSaveTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        m_path = std::filesystem::temp_directory_path() / "cardflow_gui_app_test" / "save.txt";
+        std::filesystem::remove_all(m_path.parent_path());
+    }
+    void TearDown() override { std::filesystem::remove_all(m_path.parent_path()); }
+
+    std::filesystem::path m_path;
+};
+
+TEST_F(GuiAppSaveTest, SuspendSavesAndResumeContinues)
+{
+    GuiApp gui = startCpuGame(Color::White, m_path);
+    clickCell(gui, Position{2, 3});  // 黒 d3
+    ASSERT_EQ(gui.game()->currentColor(), Color::White);
+    const auto stonesBefore = gui.game()->board().countStones(Color::Black);
+
+    clickRect(gui, app::menuBarButtonRect(1));  // 中断して終わる
+    ASSERT_EQ(gui.screen(), Screen::Title);
+    EXPECT_TRUE(std::filesystem::exists(m_path));
+    EXPECT_TRUE(gui.hasSave());
+    EXPECT_TRUE(has(gui.notice(), "中断しました"));
+    ASSERT_EQ(gui.menuLabels().front(), "続きから");
+
+    // アプリを起動し直しても、タイトルに「続きから」が出る
+    GuiApp next(99, m_path);
+    ASSERT_TRUE(next.hasSave());
+    clickRect(next, app::menuButtonRect(0));
+    ASSERT_EQ(next.screen(), Screen::Playing);
+    EXPECT_EQ(next.message(), "中断した対戦を再開しました");
+    EXPECT_EQ(next.options().cpuColor, Color::White);
+    EXPECT_EQ(next.game()->currentColor(), Color::White);
+    EXPECT_EQ(next.game()->board().countStones(Color::Black), stonesBefore);
+    EXPECT_EQ(next.seed(), 1u);
+    EXPECT_FALSE(next.hasSave());  // 再開したデータは消える
+    EXPECT_FALSE(std::filesystem::exists(m_path));
+
+    next.update(GuiApp::kStepDelayMs);  // CPU の番から続く
+    EXPECT_EQ(next.game()->currentColor(), Color::Black);
+}
+
+TEST_F(GuiAppSaveTest, PauseMenuCanSuspend)
+{
+    GuiApp gui = startCpuGame(Color::Black, m_path);
+    gui.togglePause();
+    clickRect(gui, app::overlayButtonRect(1));  // 中断して終わる
+    EXPECT_EQ(gui.screen(), Screen::Title);
+    EXPECT_TRUE(std::filesystem::exists(m_path));
+}
+
+TEST_F(GuiAppSaveTest, BrokenSaveShowsNotice)
+{
+    std::filesystem::create_directories(m_path.parent_path());
+    std::ofstream(m_path) << "broken";
+    GuiApp gui(1, m_path);
+    ASSERT_TRUE(gui.hasSave());
+    clickRect(gui, app::menuButtonRect(0));  // 続きから
+    EXPECT_EQ(gui.screen(), Screen::Title);
+    EXPECT_EQ(gui.notice(), "中断データを読み込めませんでした");
+    EXPECT_FALSE(gui.hasSave());
+    EXPECT_EQ(gui.menuLabels().front(), "2人対戦");
+}
+
+TEST(GuiAppTest, SuspendWithoutSavePathFails)
+{
+    GuiApp gui = startTwoPlayer();
+    clickRect(gui, app::menuBarButtonRect(1));
+    EXPECT_EQ(gui.screen(), Screen::Playing);
+    EXPECT_EQ(gui.message(), "中断データを保存できませんでした");
 }
 
 } // namespace

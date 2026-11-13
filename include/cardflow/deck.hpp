@@ -3,44 +3,34 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <random>
+#include <utility>
 #include <vector>
 
 #include "cardflow/card.hpp"
-#include "cardflow/player.hpp"
 
 namespace cardflow {
 
-// 両プレイヤー共有の山札と捨て札（仕様書「ゲーム進行の確定」）
+// 両プレイヤー共有の山札（使い切り。捨て札は持たない）
 class Deck {
 public:
-    static constexpr int kCopiesPerCard = 3;  // 10 種 × 3 枚 = 30 枚
+    static constexpr int kCopiesPerCard = 3;  // 5 種 × 3 枚 = 15 枚
 
     // 標準構成の山札をシャッフルして作る（seed で再現可能）
     [[nodiscard]] static Deck createStandard(std::uint32_t seed);
 
-    // 任意の並びの山札を作る（テスト用）。drawPile の末尾から引く
-    Deck(std::vector<CardType> drawPile, std::uint32_t seed);
+    // 任意の並びの山札を作る（テスト・中断からの再開用）。末尾から引く
+    explicit Deck(std::vector<CardType> pile) : m_pile(std::move(pile)) {}
 
-    [[nodiscard]] std::size_t drawPileSize() const noexcept { return m_drawPile.size(); }
-    [[nodiscard]] std::size_t discardPileSize() const noexcept { return m_discardPile.size(); }
+    // 残りの札（末尾が次に引く札）
+    [[nodiscard]] const std::vector<CardType>& cards() const noexcept { return m_pile; }
+    [[nodiscard]] std::size_t size() const noexcept { return m_pile.size(); }
+    [[nodiscard]] bool empty() const noexcept { return m_pile.empty(); }
 
-    // 1 枚引く。山札が空なら捨て札をシャッフルして戻す。両方空なら std::nullopt
+    // 1 枚引く。空なら std::nullopt
     [[nodiscard]] std::optional<CardType> draw();
 
-    // 使ったカードを捨て札に置く
-    void discard(CardType type);
-
-    // 手札が上限（3 枚）になるまで引く。カテゴリ上限を超える札は脇に置いて引き直し、
-    // 最後に山札へ戻してシャッフルする。引いた枚数を返す
-    int refillHand(Player& player);
-
 private:
-    void shuffleDrawPile();
-
-    std::vector<CardType> m_drawPile;
-    std::vector<CardType> m_discardPile;
-    std::mt19937 m_rng;
+    std::vector<CardType> m_pile;
 };
 
 } // namespace cardflow

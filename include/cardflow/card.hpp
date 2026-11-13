@@ -3,58 +3,37 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <string_view>
 
+#include "cardflow/board.hpp"
+#include "cardflow/types.hpp"
+
+// カード 5 種（仕様書 1.3）
 namespace cardflow {
 
-// カードの種類（効果の実装は今後追加）
 enum class CardType : std::uint8_t {
-    Place,
-    Move,
-    Cover,
-    Burst,
-    Swap,
-    Block,
-    Shield,
-    Reversal,
-    Reserve,
-    Restore,
+    Double,  // 連打: このターン、石をもう 1 つ置ける
+    Guard,   // 守り: 自分の石 1 つを 1 回だけ裏返らなくする
+    Wall,    // 壁: 石の隣の空マスを壁にする
+    Flip,    // 反転: 相手の石 1 つを自分の色にする（角・守りの石は不可）
+    Free,    // 自由: 次の 1 手は石の隣の空マスならどこにでも置ける
 };
 
-// カードのカテゴリ
-enum class CardCategory : std::uint8_t {
-    Green,   // 基礎操作
-    Red,     // 攻撃・展開
-    Blue,    // 防御・ブロック
-    Violet,  // 特殊操作
-    Orange,  // 補助・強化
-    Yellow,  // 調整・回復
-};
+inline constexpr std::size_t kCardTypeCount = 5;
 
-// カードの静的情報
 struct CardInfo {
     CardType type;
-    std::string_view name;
-    CardCategory category;
-    int cost;  // 発動に必要な EP
+    std::string_view name;         // 画面に出す名前
+    std::string_view description;  // 一行の説明
+    bool needsTarget;              // 対象のマスを選ぶか
 };
 
-inline constexpr std::size_t kCardTypeCount = 10;
-inline constexpr std::size_t kHandSize = 3;  // 手札の最大枚数
-
-// CardType の宣言順に並べたカード表（仕様書 §4 / 憲章 Article II.B）
 inline constexpr std::array<CardInfo, kCardTypeCount> kCardTable{{
-    {CardType::Place,    "Place",    CardCategory::Green,  2},
-    {CardType::Move,     "Move",     CardCategory::Green,  3},
-    {CardType::Cover,    "Cover",    CardCategory::Green,  2},
-    {CardType::Burst,    "Burst",    CardCategory::Red,    4},
-    {CardType::Swap,     "Swap",     CardCategory::Red,    3},
-    {CardType::Block,    "Block",    CardCategory::Blue,   3},
-    {CardType::Shield,   "Shield",   CardCategory::Blue,   2},
-    {CardType::Reversal, "Reversal", CardCategory::Violet, 4},
-    {CardType::Reserve,  "Reserve",  CardCategory::Orange, 1},
-    {CardType::Restore,  "Restore",  CardCategory::Yellow, 1},
+    {CardType::Double, "連打", "もう1つ石を置ける", false},
+    {CardType::Guard, "守り", "自分の石を1回守る", true},
+    {CardType::Wall, "壁", "石の隣に壁を置く", true},
+    {CardType::Flip, "反転", "相手の石を1つ奪う", true},
+    {CardType::Free, "自由", "挟まずに隣へ置ける", false},
 }};
 
 [[nodiscard]] constexpr const CardInfo& cardInfo(CardType type) noexcept
@@ -62,23 +41,10 @@ inline constexpr std::array<CardInfo, kCardTypeCount> kCardTable{{
     return kCardTable[static_cast<std::size_t>(type)];
 }
 
-// 手札 1 組あたりのカテゴリ上限（仕様書 Clarifications Q2）
-[[nodiscard]] constexpr int maxCardsPerCategory(CardCategory category) noexcept
-{
-    switch (category) {
-    case CardCategory::Green:
-    case CardCategory::Red:
-    case CardCategory::Blue:
-        return 2;
-    case CardCategory::Violet:
-    case CardCategory::Orange:
-    case CardCategory::Yellow:
-        return 1;
-    }
-    return 0;
-}
+// 対象のマスとして選べるか（対象のないカードは常に false）
+[[nodiscard]] bool isValidCardTarget(CardType type, const Board& board, Color user, Position target);
 
-// 手札が枚数上限とカテゴリ上限を満たしているか
-[[nodiscard]] bool isBalancedHand(std::span<const CardType> hand) noexcept;
+// 対象を取るカードの盤面への効果を適用する。対象が不正なら何もせず false
+[[nodiscard]] bool applyCardTarget(CardType type, Board& board, Color user, Position target);
 
 } // namespace cardflow
