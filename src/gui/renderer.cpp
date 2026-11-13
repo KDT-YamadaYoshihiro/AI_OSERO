@@ -99,37 +99,82 @@ bool contains(const std::vector<Position>& list, Position pos)
     return std::ranges::find(list, pos) != list.end();
 }
 
-int createFont(int size, int thickness)
+// 枠の内側に残す左右の余白
+constexpr int kTextPadding = 8;
+
+// 用意するフォントの大きさ（大きい順）。収まらない文字はこの順に小さくする
+constexpr int kFontSizes[] = {60, 56, 26, 22, 20, 18, 16, 14, 12};
+
+int createFont(int size)
 {
+    const int thickness = size >= 40 ? 8 : size >= 26 ? 6 : size >= 20 ? 5 : 4;
     return CreateFontToHandle("Meiryo", size, thickness, DX_FONTTYPE_ANTIALIASING_4X4, DX_CHARSET_UTF8);
 }
 
 } // namespace
 
 Renderer::Renderer()
-    : m_fontSmall(createFont(16, 4)),
-      m_fontMedium(createFont(20, 5)),
-      m_fontLarge(createFont(26, 6)),
-      m_fontHuge(createFont(56, 8)),
-      m_fontTitle(createFont(60, 8))
 {
+    for (const int size : kFontSizes) {
+        m_fonts.push_back(Font{size, createFont(size)});
+    }
+    m_fontSmall = fontOfSize(16);
+    m_fontMedium = fontOfSize(20);
+    m_fontLarge = fontOfSize(26);
+    m_fontHuge = fontOfSize(56);
+    m_fontTitle = fontOfSize(60);
 }
 
 Renderer::~Renderer()
 {
-    for (const int font : {m_fontSmall, m_fontMedium, m_fontLarge, m_fontHuge, m_fontTitle}) {
-        if (font != -1) {
-            DeleteFontToHandle(font);
+    for (const auto& font : m_fonts) {
+        if (font.handle != -1) {
+            DeleteFontToHandle(font.handle);
         }
     }
 }
 
+int Renderer::fontOfSize(int size) const
+{
+    for (const auto& font : m_fonts) {
+        if (font.size == size) {
+            return font.handle;
+        }
+    }
+    return m_fonts.back().handle;
+}
+
 // ─── 文字とボタン ────────────────────────────────────────────────────
 
-void Renderer::drawText(int x, int y, std::string_view text, unsigned int textColor, int font) const
+int Renderer::fitFont(std::string_view text, int font, int maxWidth) const
 {
+    if (maxWidth <= 0) {
+        return font;
+    }
+    bool started = false;
+    int chosen = font;
+    for (const auto& candidate : m_fonts) {
+        if (candidate.handle == font) {
+            started = true;
+        }
+        if (!started) {
+            continue;
+        }
+        chosen = candidate.handle;
+        if (textWidth(text, candidate.handle) <= maxWidth) {
+            break;
+        }
+    }
+    return chosen;
+}
+
+void Renderer::drawText(int x, int y, std::string_view text, unsigned int textColor, int font, int maxWidth) const
+{
+    const int fitted = fitFont(text, font, maxWidth);
+    // 小さくした分だけ下げて、縦の中心をそろえる
+    const int shift = (GetFontSizeToHandle(font) - GetFontSizeToHandle(fitted)) / 2;
     const std::string buffer{text};
-    DrawStringToHandle(x, y, buffer.c_str(), textColor, font);
+    DrawStringToHandle(x, y + shift, buffer.c_str(), textColor, fitted);
 }
 
 int Renderer::textWidth(std::string_view text, int font) const
@@ -140,9 +185,10 @@ int Renderer::textWidth(std::string_view text, int font) const
 
 void Renderer::drawCentered(const Rect& rect, std::string_view text, unsigned int textColor, int font) const
 {
-    const int width = textWidth(text, font);
-    const int height = GetFontSizeToHandle(font);
-    drawText(rect.centerX() - width / 2, rect.centerY() - height / 2 - 2, text, textColor, font);
+    const int fitted = fitFont(text, font, rect.w - kTextPadding * 2);
+    const int width = textWidth(text, fitted);
+    const int height = GetFontSizeToHandle(fitted);
+    drawText(rect.centerX() - width / 2, rect.centerY() - height / 2 - 2, text, textColor, fitted);
 }
 
 void Renderer::drawButton(const Rect& rect, std::string_view label, bool hovered, int font, bool accent) const
@@ -205,8 +251,9 @@ void Renderer::drawMenuBar(const app::GuiApp& app, int mouseX, int mouseY) const
             drawButton(rect, labels[static_cast<std::size_t>(i)], interactive && rect.contains(mouseX, mouseY),
                        m_fontSmall);
         }
-        drawText(app::menuBarButtonRect(static_cast<int>(labels.size())).x + 8, bar.y + 9, "Esc：一時停止",
-                 color(kSubText), m_fontSmall);
+        const Rect hintArea = app::menuBarButtonRect(static_cast<int>(labels.size()));
+        drawText(hintArea.x + kTextPadding, bar.y + 9, "Esc：一時停止", color(kSubText), m_fontSmall,
+                 hintArea.w * 2);
     }
     const std::string seed = "seed " + std::to_string(app.seed());
     drawText(bar.right() - 16 - textWidth(seed, m_fontSmall), bar.y + 9, seed, color(kSubText), m_fontSmall);
@@ -266,7 +313,7 @@ void Renderer::drawBoard(const app::GuiApp& app, int mouseX, int mouseY) const
         const Rect left = app::cellRect(Position{i, 0});
         drawCentered(Rect{top.x, area.y - 24, top.w, 22}, std::string(1, static_cast<char>('a' + i)), color(kSubText),
                      m_fontSmall);
-        drawCentered(Rect{area.x - 26, left.y, 22, left.h}, std::string(1, static_cast<char>('1' + i)),
+        drawCentered(Rect{area.x - 34, left.y, 32, left.h}, std::string(1, static_cast<char>('1' + i)),
                      color(kSubText), m_fontSmall);
     }
 
@@ -344,13 +391,22 @@ void Renderer::drawHand(const app::GuiApp& app, int mouseX, int mouseY) const
     const Color owner = app.handOwner();
     const std::string label = app.options().cpuColor.has_value() ? "あなたの手札" : app.playerLabel(owner) + "の手札";
     const Rect labelArea = app::handLabelRect();
-    drawText(labelArea.x, labelArea.y + 8, label, color(kText), m_fontMedium);
-    drawText(labelArea.x, labelArea.y + 38, "クリックで使う", color(kSubText), m_fontSmall);
+    drawText(labelArea.x, labelArea.y + 6, label, color(kText), m_fontMedium, labelArea.w);
+    const auto locked = app.lockedTurnIndex();
+    std::string note = "クリックで使う";
+    if (locked.has_value()) {
+        const bool now = owner == game.currentColor();
+        note = std::to_string(Game::kFirstCardTurn) + " 回目の番から使える（" + (now ? "いま " : "次が ") +
+               std::to_string(*locked) + " 回目）";
+    }
+    drawText(labelArea.x, labelArea.y + 36, note, color(locked.has_value() ? kAccent : kSubText), m_fontSmall,
+             labelArea.w);
 
     const auto& cards = app.shownHand();
     if (cards.empty()) {
-        drawText(app::handCardRect(0).x, labelArea.y + 24, "（カードはありません。3 手ごとに 1 枚引きます）",
-                 color(kSubText), m_fontSmall);
+        const Rect first = app::handCardRect(0);
+        drawText(first.x, labelArea.y + 22, "（カードはありません。自分の番 3 回ごとに 1 枚引きます）", color(kSubText),
+                 m_fontSmall, app::passButtonRect().x - first.x - kTextPadding);
         return;
     }
     for (int i = 0; i < static_cast<int>(cards.size()) && i < kMaxHandSlots; ++i) {
@@ -365,8 +421,9 @@ void Renderer::drawHand(const app::GuiApp& app, int mouseX, int mouseY) const
 
         fillRect(card, kPanel);
         fillRect(Rect{card.x, card.y, 10, card.h}, cardColor(type));
-        drawText(card.x + 22, card.y + 4, info.name, color(kText), m_fontLarge);
-        drawText(card.x + 22, card.y + 38, info.description, color(kSubText), m_fontSmall);
+        const int textWidthLimit = card.w - 22 - kTextPadding;
+        drawText(card.x + 22, card.y + 4, info.name, color(kText), m_fontLarge, textWidthLimit);
+        drawText(card.x + 22, card.y + 38, info.description, color(kSubText), m_fontSmall, textWidthLimit);
 
         if (!usable) {
             withAlpha(150, [&] { fillRect(card, kBackground); });

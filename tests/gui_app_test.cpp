@@ -10,6 +10,7 @@
 #include "cardflow/app/gui_app.hpp"
 #include "cardflow/app/layout.hpp"
 #include "deck_builder.hpp"
+#include "game_builder.hpp"
 
 using cardflow::Board;
 using cardflow::CardType;
@@ -22,6 +23,7 @@ using cardflow::app::GuiApp;
 using cardflow::app::Rect;
 using cardflow::app::Screen;
 using cardflow::test::makeBoard;
+using cardflow::test::cardsReady;
 using cardflow::test::scriptedDeck;
 namespace app = cardflow::app;
 
@@ -48,7 +50,7 @@ bool has(std::string_view text, std::string_view part)
 GuiApp startTwoPlayer(const Cards& black = {}, const Cards& white = {}, const Board& board = Board::createInitial())
 {
     GuiApp gui(1);
-    gui.startGame(Game(board, scriptedDeck(black, white)), GameOptions{});
+    gui.startGame(cardsReady(Game(board, scriptedDeck(black, white))), GameOptions{});
     return gui;
 }
 
@@ -124,6 +126,28 @@ TEST(GuiAppTest, ClickPlaceableCellPlacesStone)
 }
 
 // ─── カード ──────────────────────────────────────────────────────────
+
+TEST(GuiAppTest, CardsAreLockedAtFirst)
+{
+    GuiApp gui(1);
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({CardType::Flip, CardType::Wall}, {})), GameOptions{});
+    EXPECT_EQ(gui.lockedTurnIndex(), 1);
+    EXPECT_FALSE(gui.isCardUsable(0));
+    EXPECT_TRUE(has(gui.hint(), "（カードは 4 回目の番から）"));
+    clickRect(gui, app::handCardRect(0));
+    EXPECT_FALSE(gui.selectedSlot().has_value());
+    EXPECT_EQ(gui.message(), "カードは自分の番の 4 回目から使えます（いまは 1 回目）");
+}
+
+TEST(GuiAppTest, LockNoteDuringCpuTurnShowsNextTurn)
+{
+    GuiApp gui(1);
+    GameOptions options;
+    options.cpuColor = Color::Black;
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({}, {})), options);
+    EXPECT_EQ(gui.lockedTurnIndex(), 1);  // あなた（白）の次の番は 1 回目
+    EXPECT_EQ(gui.cardLockNote(), "カードは自分の番の 4 回目から使えます（次が 1 回目）");
+}
 
 TEST(GuiAppTest, TargetCardHighlightsAndUsesOnClick)
 {

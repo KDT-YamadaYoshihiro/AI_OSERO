@@ -7,6 +7,7 @@
 #include "cardflow/ai.hpp"
 #include "cardflow/game.hpp"
 #include "deck_builder.hpp"
+#include "game_builder.hpp"
 
 using cardflow::Board;
 using cardflow::CardType;
@@ -18,6 +19,7 @@ using cardflow::ai::CpuPlayer;
 using cardflow::ai::Difficulty;
 using cardflow::ai::evaluate;
 using cardflow::test::makeBoard;
+using cardflow::test::cardsReady;
 using cardflow::test::scriptedDeck;
 
 namespace {
@@ -69,7 +71,7 @@ TEST(AiTest, SmartCpuUsesFlipToWin)
     const Board board = makeBoard({"B.......", "........", "...W....", "........", "........", "........",
                                    "........", "........"});
     for (const auto level : kSmart) {
-        const Game game(board, scriptedDeck({CardType::Flip, CardType::Wall}, {}));
+        const Game game = cardsReady(Game(board, scriptedDeck({CardType::Flip, CardType::Wall}, {})));
         CpuPlayer cpu(level, 1);
         const Action action = cpu.chooseAction(game);
         EXPECT_EQ(action.kind, Action::Kind::UseCard);
@@ -95,7 +97,7 @@ TEST(AiTest, SmartCpuDoesNotWasteCards)
 {
     // 初手では、守りや壁を使っても得をしないので石を置く
     for (const auto level : kSmart) {
-        const Game game(Board::createInitial(), scriptedDeck({CardType::Guard, CardType::Wall}, {}));
+        const Game game = cardsReady(Game(Board::createInitial(), scriptedDeck({CardType::Guard, CardType::Wall}, {})));
         CpuPlayer cpu(level, 1);
         EXPECT_EQ(cpu.chooseAction(game).kind, Action::Kind::Place);
     }

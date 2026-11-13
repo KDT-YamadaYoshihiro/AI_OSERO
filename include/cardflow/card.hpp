@@ -14,7 +14,7 @@ namespace cardflow {
 enum class CardType : std::uint8_t {
     Double,  // 連打: このターン、石をもう 1 つ置ける
     Guard,   // 守り: 自分の石 1 つを 1 回だけ裏返らなくする
-    Wall,    // 壁: 空マスを壁にする
+    Wall,    // 壁: 石の隣の空マスを壁にする
     Flip,    // 反転: 相手の石 1 つを自分の色にする（角・守りの石は不可）
     Free,    // 自由: 次の 1 手は石の隣の空マスならどこにでも置ける
 };
@@ -31,9 +31,9 @@ struct CardInfo {
 inline constexpr std::array<CardInfo, kCardTypeCount> kCardTable{{
     {CardType::Double, "連打", "もう1つ石を置ける", false},
     {CardType::Guard, "守り", "自分の石を1回守る", true},
-    {CardType::Wall, "壁", "空マスを壁にする", true},
+    {CardType::Wall, "壁", "石の隣に壁を置く", true},
     {CardType::Flip, "反転", "相手の石を1つ奪う", true},
-    {CardType::Free, "自由", "石の隣ならどこでも置ける", false},
+    {CardType::Free, "自由", "挟まずに隣へ置ける", false},
 }};
 
 [[nodiscard]] constexpr const CardInfo& cardInfo(CardType type) noexcept

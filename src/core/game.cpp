@@ -47,10 +47,20 @@ std::vector<CardType>& Game::mutableHand(Color color) noexcept
 
 // ─── カード ──────────────────────────────────────────────────────────
 
+bool Game::cardsUnlocked() const noexcept
+{
+    return ownTurnCount(m_current) >= kFirstCardTurn;
+}
+
+int Game::ownTurnCount(Color color) const noexcept
+{
+    return m_ownTurns[indexOf(color)];
+}
+
 bool Game::canUseCard(CardType type) const
 {
     // カードは石を置く前だけ。置いた後に同じターンが続くのは連打（カード使用済み）のときだけ
-    if (isOver() || m_cardUsed || std::ranges::find(hand(m_current), type) == hand(m_current).end()) {
+    if (isOver() || m_cardUsed || !cardsUnlocked() || std::ranges::find(hand(m_current), type) == hand(m_current).end()) {
         return false;
     }
     return !cardInfo(type).needsTarget || !cardTargets(type).empty();
@@ -82,6 +92,9 @@ CardStatus Game::useCard(CardType type, std::optional<Position> target)
     }
     if (m_cardUsed) {
         return CardStatus::AlreadyUsed;
+    }
+    if (!cardsUnlocked()) {
+        return CardStatus::TooEarly;
     }
     if (cardInfo(type).needsTarget != target.has_value()) {
         return CardStatus::InvalidTarget;

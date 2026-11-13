@@ -7,6 +7,7 @@
 #include "board_builder.hpp"
 #include "cardflow/app/save_data.hpp"
 #include "deck_builder.hpp"
+#include "game_builder.hpp"
 
 using cardflow::Board;
 using cardflow::CardStatus;
@@ -17,6 +18,7 @@ using cardflow::Position;
 using cardflow::ai::Difficulty;
 using cardflow::app::GameOptions;
 using cardflow::app::SaveData;
+using cardflow::test::cardsReady;
 using cardflow::test::scriptedDeck;
 namespace app = cardflow::app;
 
@@ -25,12 +27,13 @@ namespace {
 // 守り・壁・カード使用済み・連打の途中などを含む状態
 SaveData sampleData()
 {
-    Game game(Board::createInitial(), scriptedDeck({CardType::Double, CardType::Wall}, {CardType::Guard, CardType::Free},
-                                                   {CardType::Flip}));
+    Game game = cardsReady(Game(Board::createInitial(),
+                                scriptedDeck({CardType::Double, CardType::Wall}, {CardType::Guard, CardType::Free},
+                                             {CardType::Flip})));
     EXPECT_TRUE(game.place(Position{2, 3}).has_value());                              // 黒 d3
     EXPECT_EQ(game.useCard(CardType::Guard, Position{4, 4}), CardStatus::Ok);         // 白 e5 に守り
     EXPECT_TRUE(game.place(game.placeableCells().front()).has_value());               // 白
-    EXPECT_EQ(game.useCard(CardType::Wall, Position{7, 7}), CardStatus::Ok);          // 黒 h8 を壁に
+    EXPECT_EQ(game.useCard(CardType::Wall, Position{5, 5}), CardStatus::Ok);          // 黒 f6 を壁に
     GameOptions options;
     options.cpuColor = Color::White;
     options.difficulty = Difficulty::Hard;
@@ -49,7 +52,7 @@ TEST(SaveDataTest, RoundTripThroughText)
 
     const auto game = Game::restore(parsed->game);
     ASSERT_TRUE(game.has_value());
-    EXPECT_TRUE(game->board().isWall(Position{7, 7}));
+    EXPECT_TRUE(game->board().isWall(Position{5, 5}));
     EXPECT_TRUE(game->board().stoneAt(Position{4, 4})->guarded);
     EXPECT_TRUE(game->cardUsedThisTurn());
     EXPECT_EQ(game->currentColor(), Color::Black);

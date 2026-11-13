@@ -41,6 +41,7 @@ enum class CardStatus : std::uint8_t {
     Ok,
     NotInHand,      // 手札にない
     AlreadyUsed,    // このターンはすでにカードを使った（連打で 1 つ目を置いた後も含む）
+    TooEarly,       // まだカードを使えない（序盤）
     InvalidTarget,  // 対象が不正（対象のないカードに対象を渡した場合も含む）
     GameOver,
 };
@@ -53,6 +54,7 @@ public:
     static constexpr int kStartingHand = 2;
     static constexpr int kMaxHand = 3;
     static constexpr int kDrawInterval = 3;  // 自分の番が 3 回来るごとに 1 枚引く
+    static constexpr int kFirstCardTurn = 4;  // カードを使えるのは自分の番の 4 回目から（序盤の全滅を防ぐ）
 
     // 初期盤面・標準の山札（seed でシャッフル）で始める
     explicit Game(std::uint32_t seed);
@@ -77,7 +79,11 @@ public:
     [[nodiscard]] const std::optional<Position>& lastPlaced() const noexcept { return m_lastPlaced; }
 
     // ─── カード ──────────────────────────────────────────────────────
-    // いま使えるか（手札・1 ターン 1 枚・対象の存在）
+    // 手番の人がカードを使える時期になったか（自分の番の kFirstCardTurn 回目から）
+    [[nodiscard]] bool cardsUnlocked() const noexcept;
+    // color の番が来た回数（手番の人は、いまの番を含む）
+    [[nodiscard]] int ownTurnCount(Color color) const noexcept;
+    // いま使えるか（時期・手札・1 ターン 1 枚・対象の存在）
     [[nodiscard]] bool canUseCard(CardType type) const;
     // 対象として選べるマス（対象のないカードは空）
     [[nodiscard]] std::vector<Position> cardTargets(CardType type) const;

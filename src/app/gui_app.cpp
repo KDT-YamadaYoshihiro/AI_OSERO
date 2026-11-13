@@ -151,6 +151,30 @@ bool GuiApp::isCardUsable(int slot) const noexcept
     return slot >= 0 && slot < static_cast<int>(m_usable.size()) && m_usable[static_cast<std::size_t>(slot)];
 }
 
+std::optional<int> GuiApp::lockedTurnIndex() const noexcept
+{
+    if (!m_game.has_value() || m_game->isOver()) {
+        return std::nullopt;
+    }
+    const Color owner = handOwner();
+    const int index = m_game->ownTurnCount(owner) + (owner == m_game->currentColor() ? 0 : 1);
+    if (index >= Game::kFirstCardTurn) {
+        return std::nullopt;
+    }
+    return index;
+}
+
+std::string GuiApp::cardLockNote() const
+{
+    const auto index = lockedTurnIndex();
+    if (!index.has_value()) {
+        return "";
+    }
+    const bool now = handOwner() == m_game->currentColor();
+    return "カードは自分の番の " + std::to_string(Game::kFirstCardTurn) + " 回目から使えます（" +
+           (now ? "いまは " : "次が ") + std::to_string(*index) + " 回目）";
+}
+
 bool GuiApp::showsPassButton() const noexcept
 {
     return isHumanTurn() && m_mustPass && m_overlay == Overlay::None;
@@ -216,7 +240,7 @@ std::string GuiApp::hint() const
         }
         switch (*card) {
         case CardType::Guard: return turn + "守る自分の石を選んでください（右クリックで取り消し）";
-        case CardType::Wall: return turn + "壁にする空マスを選んでください（右クリックで取り消し）";
+        case CardType::Wall: return turn + "壁にする石の隣の空マスを選んでください（右クリックで取り消し）";
         case CardType::Flip: return turn + "奪う相手の石を選んでください（右クリックで取り消し）";
         case CardType::Double:
         case CardType::Free: break;
@@ -236,6 +260,10 @@ std::string GuiApp::hint() const
     }
     if (std::ranges::any_of(m_usable, [](bool usable) { return usable; })) {
         return turn + "光っているマスに石を置いてください（置く前にカードも使えます）";
+    }
+    if (lockedTurnIndex().has_value() && handOwner() == current) {
+        return turn + "光っているマスに石を置いてください（カードは " + std::to_string(Game::kFirstCardTurn) +
+               " 回目の番から）";
     }
     return turn + "光っているマスに石を置いてください";
 }
@@ -537,6 +565,8 @@ void GuiApp::selectSlot(int slot)
         clearSelection();
         if (m_game->cardUsedThisTurn()) {
             m_message = "カードは 1 ターンに 1 枚までです";
+        } else if (lockedTurnIndex().has_value()) {
+            m_message = cardLockNote();
         } else {
             m_message = "「" + std::string{cardInfo(card).name} + "」はいま使える相手がいません";
         }

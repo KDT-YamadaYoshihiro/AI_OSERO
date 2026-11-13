@@ -83,6 +83,10 @@ public:
     [[nodiscard]] const std::vector<CardType>& shownHand() const;
     // その手札をいま使えるか
     [[nodiscard]] bool isCardUsable(int slot) const noexcept;
+    // 手札の持ち主がまだカードを使えない時期なら、その人の番が何回目か（いま・次の番）。使えるなら std::nullopt
+    [[nodiscard]] std::optional<int> lockedTurnIndex() const noexcept;
+    // カードを使えない時期の説明（例: 「カードは自分の番の 4 回目から使えます（いまは 1 回目）」）。使えるなら空
+    [[nodiscard]] std::string cardLockNote() const;
     [[nodiscard]] const std::optional<int>& selectedSlot() const noexcept { return m_selected; }
     // 選んだカードの対象として光らせるマス
     [[nodiscard]] const std::vector<Position>& targetCells() const noexcept { return m_targets; }

@@ -5,6 +5,7 @@
 #include "board_builder.hpp"
 #include "cardflow/game.hpp"
 #include "deck_builder.hpp"
+#include "game_builder.hpp"
 
 using cardflow::Board;
 using cardflow::CardStatus;
@@ -14,15 +15,17 @@ using cardflow::Game;
 using cardflow::Position;
 using cardflow::test::colorAt;
 using cardflow::test::makeBoard;
+using cardflow::test::cardsReady;
 using cardflow::test::scriptedDeck;
 
 namespace {
 
 using Cards = std::vector<CardType>;
 
+// 初期盤面・指定の手札で、カードをすぐ使える対戦
 Game startInitial(const Cards& black = {}, const Cards& white = {}, const Cards& rest = {})
 {
-    return Game(Board::createInitial(), scriptedDeck(black, white, rest));
+    return cardsReady(Game(Board::createInitial(), scriptedDeck(black, white, rest)));
 }
 
 // 置けるマスの先頭に置く
@@ -43,6 +46,23 @@ TEST(GameTest, DealsTwoCardsEachAndBlackStarts)
     EXPECT_EQ(game.currentColor(), Color::Black);
     EXPECT_EQ(game.turnNumber(), 1);
     EXPECT_FALSE(game.isOver());
+}
+
+TEST(GameTest, CardsUnlockOnFourthOwnTurn)
+{
+    // 最初の 3 手は普通のオセロ（序盤にカードで全滅させないため）
+    Game game(Board::createInitial(), scriptedDeck({CardType::Wall, CardType::Flip}, {CardType::Guard, CardType::Free}));
+    EXPECT_EQ(game.ownTurnCount(Color::Black), 1);
+    EXPECT_FALSE(game.cardsUnlocked());
+    EXPECT_FALSE(game.canUseCard(CardType::Flip));
+    EXPECT_EQ(game.useCard(CardType::Flip, Position{3, 3}), CardStatus::TooEarly);
+    for (int i = 0; i < 6; ++i) {  // 黒 3 回・白 3 回
+        placeFirst(game);
+    }
+    ASSERT_EQ(game.currentColor(), Color::Black);
+    EXPECT_EQ(game.ownTurnCount(Color::Black), Game::kFirstCardTurn);
+    EXPECT_TRUE(game.cardsUnlocked());
+    EXPECT_TRUE(game.canUseCard(CardType::Wall));
 }
 
 TEST(GameTest, StandardDeckGameStarts)
@@ -77,8 +97,10 @@ TEST(GameTest, OneCardPerTurnBeforePlacing)
     EXPECT_EQ(game.useCard(CardType::Wall, Position{3, 3}), CardStatus::InvalidTarget);  // 空マスではない
     EXPECT_EQ(game.hand(Color::Black).size(), 2u);                                      // 失敗では減らない
 
-    EXPECT_EQ(game.useCard(CardType::Wall, Position{7, 7}), CardStatus::Ok);
-    EXPECT_TRUE(game.board().isWall(Position{7, 7}));
+    EXPECT_EQ(game.useCard(CardType::Wall, Position{7, 7}), CardStatus::InvalidTarget);  // 石の隣ではない
+    EXPECT_EQ(game.cardTargets(CardType::Wall).size(), 12u);                            // 中央 4 個の周り
+    EXPECT_EQ(game.useCard(CardType::Wall, Position{2, 2}), CardStatus::Ok);
+    EXPECT_TRUE(game.board().isWall(Position{2, 2}));
     EXPECT_EQ(game.hand(Color::Black), (Cards{CardType::Flip}));
     EXPECT_TRUE(game.cardUsedThisTurn());
     EXPECT_FALSE(game.canUseCard(CardType::Flip));
@@ -101,7 +123,7 @@ TEST(GameTest, DoublePlacesTwice)
     // 黒は a2・a7 に置ける（h4 の白は残る）
     const Board board = makeBoard({"........", ".WB.....", "........", ".......W", "........", "........",
                                    ".WB.....", "........"});
-    Game game(board, scriptedDeck({CardType::Double}, {}));
+    Game game = cardsReady(Game(board, scriptedDeck({CardType::Double}, {})));
     ASSERT_EQ(game.useCard(CardType::Double), CardStatus::Ok);
     EXPECT_EQ(game.placementsLeft(), 2);
     ASSERT_TRUE(game.place(Position{1, 0}).has_value());
@@ -117,7 +139,7 @@ TEST(GameTest, DoubleEndsTurnWhenNoSecondMove)
 {
     const Board board = makeBoard({"BW......", "........", "........", "........", "........", "........",
                                    "........", "......W."});
-    Game game(board, scriptedDeck({CardType::Double}, {}));
+    Game game = cardsReady(Game(board, scriptedDeck({CardType::Double}, {})));
     ASSERT_EQ(game.useCard(CardType::Double), CardStatus::Ok);
     ASSERT_TRUE(game.place(Position{0, 2}).has_value());  // c1: b1 を挟む
     EXPECT_EQ(game.currentColor(), Color::White);          // 2 つ目は置けないので終わる
@@ -192,8 +214,8 @@ TEST(GameTest, FullBoardEndsGame)
 
 TEST(GameTest, DrawsEveryThirdOwnTurn)
 {
-    Game game = startInitial({CardType::Wall, CardType::Flip}, {CardType::Guard, CardType::Free},
-                             {CardType::Double, CardType::Free});
+    Game game(Board::createInitial(), scriptedDeck({CardType::Wall, CardType::Flip}, {CardType::Guard, CardType::Free},
+                                                   {CardType::Double, CardType::Free}));
     for (int i = 0; i < 4; ++i) {  // 黒 2 回・白 2 回
         placeFirst(game);
     }
@@ -207,8 +229,8 @@ TEST(GameTest, DrawsEveryThirdOwnTurn)
 
 TEST(GameTest, NoDrawWhenHandIsFull)
 {
-    Game game = startInitial({CardType::Wall, CardType::Flip}, {CardType::Guard, CardType::Free},
-                             {CardType::Double, CardType::Wall, CardType::Free});
+    Game game(Board::createInitial(), scriptedDeck({CardType::Wall, CardType::Flip}, {CardType::Guard, CardType::Free},
+                                                   {CardType::Double, CardType::Wall, CardType::Free}));
     for (int i = 0; i < 10; ++i) {  // 黒の 6 回目の番まで進める
         placeFirst(game);
     }

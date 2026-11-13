@@ -25,7 +25,8 @@ bool isValidCardTarget(CardType type, const Board& board, Color user, Position t
     case CardType::Guard:
         return stone.has_value() && stone->color == user && !stone->guarded;
     case CardType::Wall:
-        return board.isEmpty(target);
+        // 石の隣（8 方向のどこかに石がある空マス）にだけ置ける
+        return board.isEmpty(target) && board.hasAdjacentStone(target);
     case CardType::Flip:
         return stone.has_value() && stone->color != user && !stone->guarded && !Board::isCorner(target);
     case CardType::Double:
