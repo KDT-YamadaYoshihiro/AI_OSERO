@@ -7,10 +7,16 @@ namespace cardflow {
 Board Board::createInitial()
 {
     Board board;
+    // 中央 4 マス
     board.m_cells[3][3] = Stone{.color = Color::Black};
     board.m_cells[3][4] = Stone{.color = Color::White};
     board.m_cells[4][3] = Stone{.color = Color::White};
     board.m_cells[4][4] = Stone{.color = Color::Black};
+    // 斜め外側 4 マス
+    board.m_cells[2][2] = Stone{.color = Color::White};
+    board.m_cells[2][5] = Stone{.color = Color::Black};
+    board.m_cells[5][2] = Stone{.color = Color::Black};
+    board.m_cells[5][5] = Stone{.color = Color::White};
     return board;
 }
 

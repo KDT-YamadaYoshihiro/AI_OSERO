@@ -27,8 +27,9 @@ public:
     // 空の盤面を作る
     Board() = default;
 
-    // 初期配置（中央 4 マスに黒白を交互配置）の盤面を作る
-    //   d4 = 黒, e4 = 白, d5 = 白, e5 = 黒
+    // 初期配置（各 4 個。仕様書「CPU 対戦の確定」）の盤面を作る
+    //   中央: d4 = 黒, e4 = 白, d5 = 白, e5 = 黒
+    //   斜め: c3 = 白, f3 = 黒, c6 = 黒, f6 = 白
     [[nodiscard]] static Board createInitial();
 
     [[nodiscard]] static constexpr bool isInside(Position pos) noexcept

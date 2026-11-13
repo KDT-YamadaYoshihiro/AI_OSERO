@@ -27,8 +27,8 @@ TEST(RulesFlipTest, FlipsLikeOthelloOnInitialBoard)
     ASSERT_TRUE(flipped.has_value());
     EXPECT_EQ(flipped->affected, 1);
     EXPECT_EQ(colorAt(board, {3, 4}), Color::Black);
-    EXPECT_EQ(board.countStones(Color::Black), 4);
-    EXPECT_EQ(board.countStones(Color::White), 1);
+    EXPECT_EQ(board.countStones(Color::Black), 6);
+    EXPECT_EQ(board.countStones(Color::White), 3);
 }
 
 TEST(RulesFlipTest, PlacementWithoutFlipIsAllowed)
@@ -246,12 +246,14 @@ TEST(RulesCaptureTest, IsSandwiched)
     EXPECT_FALSE(rules::isSandwiched(board, {5, 5}, Color::Black));  // 空マス
 }
 
-TEST(RulesCaptureTest, InitialBoardHasNothingToCapture)
+TEST(RulesCaptureTest, InitialBoardHasSymmetricDiagonalSandwiches)
 {
-    Board board = Board::createInitial();
-    EXPECT_TRUE(rules::findCapturable(board, Color::Black).empty());
-    EXPECT_TRUE(rules::findCapturable(board, Color::White).empty());
-    EXPECT_EQ(rules::captureAll(board, Color::Black).affected, 0);
+    // 初期配置では、両者とも斜めの列で相手の中央 2 個を挟んでいる（Burst の EP 4 は初手では払えない）
+    const Board board = Board::createInitial();
+    const std::vector<Position> byBlack{{3, 4}, {4, 3}};
+    const std::vector<Position> byWhite{{3, 3}, {4, 4}};
+    EXPECT_EQ(rules::findCapturable(board, Color::Black), byBlack);
+    EXPECT_EQ(rules::findCapturable(board, Color::White), byWhite);
 }
 
 } // namespace

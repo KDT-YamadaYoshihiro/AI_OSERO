@@ -17,6 +17,7 @@ endif()
 
 # ─── ゲームロジック（UI 非依存）──────────────────────────────────────
 add_library(cardflow_core STATIC
+    src/core/ai.cpp
     src/core/board.cpp
     src/core/card.cpp
     src/core/card_effects.cpp

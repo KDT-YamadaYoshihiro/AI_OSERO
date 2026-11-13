@@ -27,7 +27,7 @@ bool contains(const std::string& text, const std::string& part)
 TEST(ConsoleGameTest, QuitImmediately)
 {
     const auto out = runWithInput("q\n");
-    EXPECT_TRUE(contains(out, "ようこそ"));
+    EXPECT_TRUE(contains(out, "対戦を始めます"));
     EXPECT_TRUE(contains(out, "ラウンド 1"));
     EXPECT_TRUE(contains(out, "中断"));
 }
@@ -62,6 +62,46 @@ TEST(ConsoleGameTest, CardForNumberMapsHand)
     EXPECT_EQ(cardflow::ui::cardForNumber(game, 3), hand[2]);
     EXPECT_FALSE(cardflow::ui::cardForNumber(game, 4).has_value());  // 追加 Place なし
     EXPECT_FALSE(cardflow::ui::cardForNumber(game, 0).has_value());
+}
+
+TEST(ConsoleGameTest, MenuSelectsTwoPlayer)
+{
+    std::istringstream in("1\n");
+    std::ostringstream out;
+    const auto options = cardflow::ui::askGameOptions(in, out);
+    ASSERT_TRUE(options.has_value());
+    EXPECT_FALSE(options->cpuColor.has_value());
+}
+
+TEST(ConsoleGameTest, MenuSelectsCpuWithRetryOnBadInput)
+{
+    std::istringstream in("2\n5\n3\nx\n2\n");
+    std::ostringstream out;
+    const auto options = cardflow::ui::askGameOptions(in, out);
+    ASSERT_TRUE(options.has_value());
+    EXPECT_EQ(options->difficulty, cardflow::ai::Difficulty::Hard);
+    EXPECT_EQ(options->cpuColor, cardflow::Color::Black);  // 自分が白（後手）
+    EXPECT_TRUE(contains(out.str(), "1〜3 の番号で選んでください"));
+}
+
+TEST(ConsoleGameTest, MenuQuit)
+{
+    std::istringstream in("q\n");
+    std::ostringstream out;
+    EXPECT_FALSE(cardflow::ui::askGameOptions(in, out).has_value());
+}
+
+TEST(ConsoleGameTest, CpuMovesFirstWhenHumanIsWhite)
+{
+    std::istringstream in("q\n");
+    std::ostringstream out;
+    cardflow::ui::GameOptions options;
+    options.cpuColor = cardflow::Color::Black;
+    options.difficulty = cardflow::ai::Difficulty::Normal;
+    cardflow::ui::runConsoleGame(in, out, 3, options);
+    const auto text = out.str();
+    EXPECT_TRUE(contains(text, "黒 ●（CPU・普通）"));
+    EXPECT_TRUE(contains(text, "白 ○（あなた） > "));
 }
 
 TEST(ConsoleGameTest, StatusShowsHandAndCounts)

@@ -84,8 +84,8 @@ TEST(CardEffectTest, PlacePutsTwoStonesAndFlips)
     const auto result = cardflow::playCard(CardType::Place, board, black, Targets{{2, 4}, {5, 3}});
     ASSERT_TRUE(result.ok());
     EXPECT_EQ(result.flipped, 2);
-    EXPECT_EQ(board.countStones(Color::Black), 6);
-    EXPECT_EQ(board.countStones(Color::White), 0);
+    EXPECT_EQ(board.countStones(Color::Black), 8);
+    EXPECT_EQ(board.countStones(Color::White), 2);
 }
 
 TEST(CardEffectTest, PlaceRejectsBadTargets)
@@ -162,7 +162,8 @@ TEST(CardEffectTest, BurstCapturesSandwichedStones)
 
 TEST(CardEffectTest, BurstNeedsSomethingToCapture)
 {
-    const Board board = Board::createInitial();
+    const Board board = makeBoard({"BW......", "........", "........", "........",
+                                   "........", "........", "........", "......WB"});
     EXPECT_FALSE(cardflow::canApplyEffect(CardType::Burst, board, Player{Color::Black}, Targets{}));
 }
 
