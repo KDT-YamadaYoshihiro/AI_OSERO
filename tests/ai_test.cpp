@@ -5,13 +5,13 @@
 #include <vector>
 
 #include "board_builder.hpp"
+#include "deck_builder.hpp"
 #include "cardflow/ai.hpp"
 #include "cardflow/game.hpp"
 
 using cardflow::Board;
 using cardflow::CardType;
 using cardflow::Color;
-using cardflow::Deck;
 using cardflow::Game;
 using cardflow::ai::Action;
 using cardflow::ai::CpuPlayer;
@@ -19,17 +19,9 @@ using cardflow::ai::Difficulty;
 using cardflow::ai::enumerateActions;
 using cardflow::ai::evaluate;
 using cardflow::test::makeBoard;
+using cardflow::test::scriptedDeck;
 
 namespace {
-
-// 末尾から 黒 3 枚 → 白 3 枚 の順に配られる山札
-Deck scriptedDeck(std::vector<CardType> black, std::vector<CardType> white, std::vector<CardType> rest = {})
-{
-    std::vector<CardType> pile = rest;
-    pile.insert(pile.end(), white.rbegin(), white.rend());
-    pile.insert(pile.end(), black.rbegin(), black.rend());
-    return Deck(pile, 0);
-}
 
 const std::vector<CardType> kFiller{CardType::Block, CardType::Shield, CardType::Restore};
 

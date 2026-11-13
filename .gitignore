@@ -33,3 +33,6 @@ out/
 *.user
 *.suo
 CMakeSettings.json.user
+
+# DxLib（各自で配置。サイズが大きいため git 管理外）
+third_party/dxlib/
