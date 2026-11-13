@@ -8,8 +8,10 @@ using namespace layout;
 
 namespace {
 
-constexpr int kButtonTop = kHandTop + kCardHeight + 20;
-constexpr int kButtonHeight = 48;
+constexpr int kSideMargin = 48;
+constexpr int kPanelGap = 48;
+constexpr int kHandWidth = kMaxHandSlots * kCardWidth + (kMaxHandSlots - 1) * kCardGap;
+constexpr int kHandLeft = (kWindowWidth - kHandWidth) / 2;
 constexpr int kMenuButtonWidth = 360;
 constexpr int kMenuButtonHeight = 64;
 constexpr int kMenuTop = 300;
@@ -39,40 +41,37 @@ std::optional<Position> cellAt(int x, int y) noexcept
     return pos;
 }
 
-Rect statusRect() noexcept
+Rect hintRect() noexcept
 {
-    return Rect{kPanelLeft, kBoardTop, kPanelWidth, 100};
+    return Rect{kSideMargin, 12, kWindowWidth - kSideMargin * 2, 40};
+}
+
+Rect messageRect() noexcept
+{
+    return Rect{kSideMargin, 54, kWindowWidth - kSideMargin * 2, 28};
+}
+
+Rect playerPanelRect(Color color) noexcept
+{
+    const int width = kBoardLeft - kSideMargin - kPanelGap;
+    const int x = color == Color::Black ? kSideMargin : kBoardLeft + kBoardPixels + kPanelGap;
+    return Rect{x, kBoardTop, width, 300};
+}
+
+Rect handLabelRect() noexcept
+{
+    return Rect{kSideMargin, kHandTop, kHandLeft - kSideMargin - kCardGap, kCardHeight};
 }
 
 Rect handCardRect(int slot) noexcept
 {
-    return Rect{kPanelLeft + slot * (kCardWidth + kCardGap), kHandTop, kCardWidth, kCardHeight};
+    return Rect{kHandLeft + slot * (kCardWidth + kCardGap), kHandTop, kCardWidth, kCardHeight};
 }
 
-Rect useButtonRect() noexcept
+Rect passButtonRect() noexcept
 {
-    return Rect{kPanelLeft, kButtonTop, 160, kButtonHeight};
-}
-
-Rect cancelButtonRect() noexcept
-{
-    return Rect{kPanelLeft + 176, kButtonTop, 160, kButtonHeight};
-}
-
-Rect endTurnButtonRect() noexcept
-{
-    return Rect{kPanelLeft + kPanelWidth - 200, kButtonTop, 200, kButtonHeight};
-}
-
-Rect hintRect() noexcept
-{
-    return Rect{kPanelLeft, kButtonTop + kButtonHeight + 12, kPanelWidth, 32};
-}
-
-Rect logRect() noexcept
-{
-    const int top = hintRect().bottom() + 8;
-    return Rect{kPanelLeft, top, kPanelWidth, kBoardTop + kBoardPixels - top};
+    const int width = 200;
+    return Rect{kWindowWidth - kSideMargin - width, kHandTop + 4, width, kCardHeight - 8};
 }
 
 Rect menuButtonRect(int index) noexcept

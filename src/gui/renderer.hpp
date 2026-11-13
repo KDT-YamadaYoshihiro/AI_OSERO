@@ -20,17 +20,15 @@ public:
 
 private:
     void drawTitle(int mouseX, int mouseY) const;
-    void drawDifficulty(int mouseX, int mouseY) const;
-    void drawColorSelect(int mouseX, int mouseY) const;
+    void drawMenu(std::string_view heading, const char* const* labels, int count, bool withBack, int mouseX,
+                  int mouseY) const;
     void drawPlaying(const app::GuiApp& app, int mouseX, int mouseY) const;
     void drawBoard(const app::GuiApp& app, int mouseX, int mouseY) const;
-    void drawStatus(const app::GuiApp& app) const;
+    void drawPlayerPanel(const app::GuiApp& app, Color color) const;
     void drawHand(const app::GuiApp& app, int mouseX, int mouseY) const;
-    void drawControls(const app::GuiApp& app, int mouseX, int mouseY) const;
-    void drawLog(const app::GuiApp& app) const;
     void drawResult(const app::GuiApp& app, int mouseX, int mouseY) const;
 
-    void drawButton(const app::Rect& rect, std::string_view label, bool enabled, bool hovered, int font) const;
+    void drawButton(const app::Rect& rect, std::string_view label, bool hovered, int font, bool accent = false) const;
     void drawText(int x, int y, std::string_view text, unsigned int color, int font) const;
     void drawCentered(const app::Rect& rect, std::string_view text, unsigned int color, int font) const;
     [[nodiscard]] int textWidth(std::string_view text, int font) const;
@@ -38,6 +36,7 @@ private:
     int m_fontSmall;
     int m_fontMedium;
     int m_fontLarge;
+    int m_fontHuge;
     int m_fontTitle;
 };
 

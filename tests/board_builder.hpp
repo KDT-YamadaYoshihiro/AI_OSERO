@@ -11,7 +11,7 @@
 namespace cardflow::test {
 
 // 文字列から盤面を作るテスト用ヘルパー。
-//   '.' 空 / 'B' 黒 / 'W' 白 / '#' 壁 / 'b' 'w' Shield 付きの黒・白
+//   '.' 空 / 'B' 黒 / 'W' 白 / '#' 壁 / 'b' 'w' 守り付きの黒・白
 inline Board makeBoard(const std::array<std::string_view, Board::kSize>& rows)
 {
     Board board;
@@ -27,8 +27,7 @@ inline Board makeBoard(const std::array<std::string_view, Board::kSize>& rows)
             case 'b':
             case 'w': {
                 const Color color = ch == 'b' ? Color::Black : Color::White;
-                ok = board.placeStone(pos, color) &&
-                     board.replaceStone(pos, Stone{.color = color, .shielded = true});
+                ok = board.placeStone(pos, color) && board.setStone(pos, Stone{color, true});
                 break;
             }
             default: break;

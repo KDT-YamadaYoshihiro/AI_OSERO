@@ -4,37 +4,36 @@
 #include <optional>
 #include <random>
 #include <string_view>
-#include <vector>
 
 #include "cardflow/card.hpp"
 #include "cardflow/game.hpp"
 #include "cardflow/types.hpp"
 
-// CPU 対戦（仕様書「CPU 対戦の確定」）。CPU は相手の手札を見ない。
+// CPU（仕様書 2）。CPU は相手の手札を見ない。
 namespace cardflow::ai {
 
-// 1 回のカード使用（カードと対象）
+// CPU の 1 ステップの行動
 struct Action {
-    CardType card = CardType::Place;
-    std::vector<Position> targets;
+    enum class Kind : std::uint8_t { UseCard, Place, Pass };
+
+    Kind kind = Kind::Pass;
+    CardType card = CardType::Double;  // UseCard のとき
+    std::optional<Position> target;    // UseCard で対象を取るとき
+    Position pos;                      // Place のとき
 
     friend bool operator==(const Action&, const Action&) = default;
 };
 
-// 手番のプレイヤーが、いま実行できる行動をすべて列挙する。
-// Place の 2 マスは順序を区別しない（行優先で小さい方が先）。
-[[nodiscard]] std::vector<Action> enumerateActions(const Game& game);
-
 enum class Difficulty : std::uint8_t {
     Easy,    // 弱い: ランダム
-    Normal,  // 普通: 石差・EP・相手の次の番の脅威を 1 手評価
-    Hard,    // 強い: 普通＋自分の次の番の好機・角/辺・保護も評価
+    Normal,  // 普通: 1 手読み
+    Hard,    // 強い: 相手の応手まで読む
 };
 
 [[nodiscard]] std::string_view difficultyName(Difficulty difficulty) noexcept;
 
 // me から見た局面の点数（大きいほど me に有利）
-[[nodiscard]] int evaluate(const Game& game, Color me, Difficulty difficulty);
+[[nodiscard]] int evaluate(const Game& game, Color me);
 
 class CpuPlayer {
 public:
@@ -42,12 +41,18 @@ public:
 
     [[nodiscard]] Difficulty difficulty() const noexcept { return m_difficulty; }
 
-    // 次に行う行動。ターンを終えるべきなら std::nullopt
-    [[nodiscard]] std::optional<Action> chooseAction(const Game& game);
+    // 手番のプレイヤーとして次の行動を選ぶ（終局後は Pass）
+    [[nodiscard]] Action chooseAction(const Game& game);
 
 private:
+    [[nodiscard]] Action chooseRandom(const Game& game);
+    [[nodiscard]] Action chooseBest(const Game& game);
+
     Difficulty m_difficulty;
     std::mt19937 m_rng;
 };
+
+// Action を Game に適用する（成功時 true）
+bool applyAction(Game& game, const Action& action);
 
 } // namespace cardflow::ai

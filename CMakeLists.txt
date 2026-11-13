@@ -20,10 +20,8 @@ add_library(cardflow_core STATIC
     src/core/ai.cpp
     src/core/board.cpp
     src/core/card.cpp
-    src/core/card_effects.cpp
     src/core/deck.cpp
     src/core/game.cpp
-    src/core/player.cpp
     src/core/rules.cpp
 )
 target_include_directories(cardflow_core PUBLIC include)

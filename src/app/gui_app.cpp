@@ -5,20 +5,13 @@
 
 #include "cardflow/app/layout.hpp"
 #include "cardflow/app/text.hpp"
-#include "cardflow/board.hpp"
-#include "cardflow/card_effects.hpp"
 
 namespace cardflow::app {
 
 namespace {
 
 constexpr std::uint32_t kCpuSeedSalt = 0x9E3779B9u;
-constexpr int kCells = Board::kSize * Board::kSize;
-
-Position cellAtIndex(int index)
-{
-    return Position{index / Board::kSize, index % Board::kSize};
-}
+const std::vector<CardType> kNoCards;
 
 bool containsPosition(const std::vector<Position>& list, Position pos)
 {
@@ -67,15 +60,37 @@ std::string GuiApp::playerLabel(Color color) const
     return label;
 }
 
-bool GuiApp::canUseSelected() const noexcept
+Color GuiApp::handOwner() const noexcept
 {
-    return isHumanTurn() && m_selection.has_value() && targetCount(m_selection->card) == 0;
+    if (m_options.cpuColor.has_value()) {
+        return opponentOf(*m_options.cpuColor);
+    }
+    return m_game.has_value() ? m_game->currentColor() : Color::Black;
 }
 
-bool GuiApp::canEndTurn() const noexcept
+const std::vector<CardType>& GuiApp::shownHand() const
 {
-    // 使えるカードがなく自動で進む場合も、待たずに終えられる
-    return m_screen == Screen::Playing && isHumanTurn();
+    return m_game.has_value() ? m_game->hand(handOwner()) : kNoCards;
+}
+
+bool GuiApp::isCardUsable(int slot) const noexcept
+{
+    return slot >= 0 && slot < static_cast<int>(m_usable.size()) && m_usable[static_cast<std::size_t>(slot)];
+}
+
+bool GuiApp::showsPassButton() const noexcept
+{
+    return isHumanTurn() && m_mustPass;
+}
+
+std::optional<CardType> GuiApp::selectedCard() const
+{
+    if (!m_selected.has_value()) {
+        return std::nullopt;
+    }
+    const auto& cards = shownHand();
+    const auto index = static_cast<std::size_t>(*m_selected);
+    return index < cards.size() ? std::optional<CardType>{cards[index]} : std::nullopt;
 }
 
 std::string GuiApp::hint() const
@@ -90,14 +105,36 @@ std::string GuiApp::hint() const
     if (isCpu(current)) {
         return playerLabel(current) + "が考えています…";
     }
-    if (m_autoPending) {
-        return m_game->hasActedThisTurn() ? "これ以上使えるカードがないため、ターンを終えます"
-                                          : "使えるカードがないため、パスします";
+    const std::string turn = m_options.cpuColor.has_value() ? "" : playerLabel(current) + "の番：";
+    if (const auto card = selectedCard()) {
+        const auto& info = cardInfo(*card);
+        if (!info.needsTarget) {
+            return turn + "もう一度クリックすると「" + std::string{info.name} + "」を使います";
+        }
+        switch (*card) {
+        case CardType::Guard: return turn + "守る自分の石を選んでください（右クリックで取り消し）";
+        case CardType::Wall: return turn + "壁にする空マスを選んでください（右クリックで取り消し）";
+        case CardType::Flip: return turn + "奪う相手の石を選んでください（右クリックで取り消し）";
+        case CardType::Double:
+        case CardType::Free: break;
+        }
     }
-    if (m_selection.has_value()) {
-        return std::string{targetPrompt(m_selection->card, static_cast<int>(m_selection->targets.size()))};
+    if (m_mustPass) {
+        return turn + (m_autoPending ? "置ける場所がないので、パスします" : "置ける場所がありません。カードを使うか、パスしてください");
     }
-    return "使うカードを選んでください（右クリックで取り消し）";
+    if (m_game->placedThisTurn() > 0) {
+        return turn + "連打：もう 1 つ置いてください";
+    }
+    if (m_game->placementsLeft() > 1) {
+        return turn + "連打：光っているマスに 2 つ続けて置けます";
+    }
+    if (m_game->freeMoveActive()) {
+        return turn + "自由：石の隣ならどこにでも置けます";
+    }
+    if (std::ranges::any_of(m_usable, [](bool usable) { return usable; })) {
+        return turn + "光っているマスに石を置いてください（置く前にカードも使えます）";
+    }
+    return turn + "光っているマスに石を置いてください";
 }
 
 std::string GuiApp::resultText() const
@@ -214,32 +251,35 @@ void GuiApp::clickPlaying(int x, int y)
     if (!isHumanTurn()) {
         return;
     }
-
-    for (int slot = 0; slot < static_cast<int>(m_slots.size()); ++slot) {
+    for (int slot = 0; slot < static_cast<int>(shownHand().size()); ++slot) {
         if (handCardRect(slot).contains(x, y)) {
             selectSlot(slot);
             return;
         }
     }
-    if (useButtonRect().contains(x, y)) {
-        if (canUseSelected()) {
-            play(m_selection->card, {});
+    if (showsPassButton() && passButtonRect().contains(x, y)) {
+        passTurn(false);
+        return;
+    }
+    if (const auto pos = cellAt(x, y)) {
+        clickCell(*pos);
+        return;
+    }
+    clearSelection();
+}
+
+void GuiApp::clickCell(Position pos)
+{
+    if (const auto card = selectedCard()) {
+        if (cardInfo(*card).needsTarget && containsPosition(m_targets, pos)) {
+            useCard(*card, pos);
+        } else {
+            clearSelection();
         }
         return;
     }
-    if (cancelButtonRect().contains(x, y)) {
-        clearSelection();
-        return;
-    }
-    if (endTurnButtonRect().contains(x, y)) {
-        const Color current = m_game->currentColor();
-        addLog(playerLabel(current) + (m_game->hasActedThisTurn() ? "：ターン終了" : "：パス"));
-        m_game->endTurn();
-        finishTurn();
-        return;
-    }
-    if (const auto pos = cellAt(x, y); pos.has_value() && m_selection.has_value()) {
-        chooseTarget(*pos);
+    if (m_game->canPlace(pos)) {
+        placeStone(pos);
     }
 }
 
@@ -255,10 +295,10 @@ void GuiApp::startGame(Game game, const GameOptions& options)
         m_cpu.emplace(m_options.difficulty, m_seed ^ kCpuSeedSalt);
     }
     m_screen = Screen::Playing;
-    m_log.clear();
-    m_lastAction.clear();
-    addLog("対戦開始（seed " + std::to_string(m_seed) + "）");
-    onTurnStarted();
+    m_message = "対戦開始！ 黒が先手です";
+    m_waitMs = 0;
+    clearSelection();
+    refresh();
 }
 
 void GuiApp::startNewGame()
@@ -269,170 +309,120 @@ void GuiApp::startNewGame()
 
 void GuiApp::selectSlot(int slot)
 {
-    if (m_selection.has_value() && m_selection->slot == slot) {
+    const auto& cards = shownHand();
+    const CardType card = cards[static_cast<std::size_t>(slot)];
+    if (!isCardUsable(slot)) {
         clearSelection();
-        return;
-    }
-    const HandSlot& target = m_slots[static_cast<std::size_t>(slot)];
-    if (!target.playable) {
-        clearSelection();
-        PlayStatus status = PlayStatus::CardLimitReached;
-        if (target.bonus || !m_game->hasPlayedCardThisTurn()) {
-            // 対象なしで試すと、手札 → EP → 対象 の順に理由がわかる
-            Game trial = *m_game;
-            status = trial.play(target.card, {}).status;
-            if (status == PlayStatus::Ok) {
-                status = PlayStatus::InvalidTarget;
-            }
+        if (m_game->cardUsedThisTurn()) {
+            m_message = "カードは 1 ターンに 1 枚までです";
+        } else {
+            m_message = "「" + std::string{cardInfo(card).name} + "」はいま使える相手がいません";
         }
-        addLog(std::string{cardInfo(target.card).name} + "：" + std::string{statusMessage(status)});
         return;
     }
-    m_selection = Selection{slot, target.card, {}};
-    refreshCandidates();
+    if (m_selected == slot) {
+        if (cardInfo(card).needsTarget) {
+            clearSelection();
+        } else {
+            useCard(card, std::nullopt);
+        }
+        return;
+    }
+    m_selected = slot;
+    m_targets = cardInfo(card).needsTarget ? m_game->cardTargets(card) : std::vector<Position>{};
 }
 
-void GuiApp::chooseTarget(Position pos)
-{
-    if (!containsPosition(m_candidates, pos)) {
-        return;
-    }
-    m_selection->targets.push_back(pos);
-    if (static_cast<int>(m_selection->targets.size()) == targetCount(m_selection->card)) {
-        const Selection chosen = *m_selection;
-        play(chosen.card, chosen.targets);
-        return;
-    }
-    refreshCandidates();
-}
-
-void GuiApp::play(CardType card, const std::vector<Position>& targets)
+void GuiApp::useCard(CardType card, std::optional<Position> target)
 {
     const Color actor = m_game->currentColor();
     clearSelection();
-    const auto result = m_game->play(card, targets);
-    if (!result.ok()) {
-        addLog(std::string{cardInfo(card).name} + "：" + std::string{statusMessage(result.status)});
+    if (m_game->useCard(card, target) != CardStatus::Ok) {
         return;
     }
-    std::string line = playerLabel(actor) + "：" + std::string{cardInfo(card).name};
-    for (const auto& pos : targets) {
-        line += ' ';
-        line += formatPosition(pos);
+    m_message = playerLabel(actor) + "：「" + std::string{cardInfo(card).name} + "」を";
+    if (target.has_value()) {
+        m_message += " " + formatPosition(*target) + " に";
     }
-    line += describeResult(result);
-    addLog(std::move(line));
-    m_lastAction = targets;
-    if (m_game->isOver()) {
-        addLog("ゲーム終了：" + resultText());
-    }
-    refreshTurnState();
+    m_message += "使いました";
+    refresh();
 }
 
-// endTurn の後始末（終局の記録、または次の手番の開始）
-void GuiApp::finishTurn()
+void GuiApp::placeStone(Position pos)
 {
-    if (m_game->isOver()) {
-        clearSelection();
-        addLog("ゲーム終了：" + resultText());
-        refreshTurnState();
+    const Color actor = m_game->currentColor();
+    clearSelection();
+    const auto result = m_game->place(pos);
+    if (!result.has_value()) {
         return;
     }
-    onTurnStarted();
+    m_message = playerLabel(actor) + "：" + formatPosition(pos) + " に置きました";
+    if (!result->flipped.empty()) {
+        m_message += "（" + std::to_string(result->flipped.size()) + " 個裏返し）";
+    }
+    if (result->guardsBroken > 0) {
+        m_message += "　守りで " + std::to_string(result->guardsBroken) + " 個防がれました";
+    }
+    refresh();
+}
+
+void GuiApp::passTurn(bool automatic)
+{
+    const Color actor = m_game->currentColor();
+    clearSelection();
+    if (!m_game->pass()) {
+        return;
+    }
+    m_message = playerLabel(actor) + (automatic ? "：置ける場所がないのでパス" : "：パス");
+    refresh();
 }
 
 void GuiApp::stepAutomatic()
 {
     const Color current = m_game->currentColor();
     if (isCpu(current) && m_cpu.has_value()) {
-        if (const auto action = m_cpu->chooseAction(*m_game)) {
-            play(action->card, action->targets);
+        const auto action = m_cpu->chooseAction(*m_game);
+        switch (action.kind) {
+        case ai::Action::Kind::UseCard:
+            useCard(action.card, action.target);
+            return;
+        case ai::Action::Kind::Place:
+            placeStone(action.pos);
+            return;
+        case ai::Action::Kind::Pass:
+            passTurn(true);
             return;
         }
-        addLog(playerLabel(current) + (m_game->hasActedThisTurn() ? "：ターン終了" : "：パス"));
-    } else {
-        addLog(playerLabel(current) + (m_game->hasActedThisTurn() ? "：使えるカードがないためターン終了"
-                                                                  : "：使えるカードがないためパス"));
+        return;
     }
-    m_game->endTurn();
-    finishTurn();
-}
-
-void GuiApp::onTurnStarted()
-{
-    clearSelection();
-    m_waitMs = 0;
-    addLog("― ラウンド " + std::to_string(m_game->round()) + "：" + playerLabel(m_game->currentColor()) + "の番 ―");
-    refreshTurnState();
+    passTurn(true);
 }
 
 void GuiApp::clearSelection()
 {
-    m_selection.reset();
-    m_candidates.clear();
+    m_selected.reset();
+    m_targets.clear();
 }
 
-// 次に選べるマス: そのマスを加えて、対象をすべて正しく埋められるもの
-void GuiApp::refreshCandidates()
+// 置けるマス・使えるカード・自動で進めるかを計算し直す（盤面や手番が変わったとき）
+void GuiApp::refresh()
 {
-    m_candidates.clear();
-    if (!m_selection.has_value() || !m_game.has_value()) {
-        return;
-    }
-    const Board& board = m_game->board();
-    const Player& actor = m_game->currentPlayer();
-    const CardType card = m_selection->card;
-    const int remaining = targetCount(card) - static_cast<int>(m_selection->targets.size());
-
-    std::vector<Position> trial = m_selection->targets;
-    for (int a = 0; a < kCells; ++a) {
-        const Position pos = cellAtIndex(a);
-        if (containsPosition(m_selection->targets, pos)) {
-            continue;
-        }
-        trial.push_back(pos);
-        bool ok = false;
-        if (remaining == 1) {
-            ok = canApplyEffect(card, board, actor, trial);
-        } else if (remaining == 2) {
-            for (int b = 0; b < kCells && !ok; ++b) {
-                trial.push_back(cellAtIndex(b));
-                ok = b != a && canApplyEffect(card, board, actor, trial);
-                trial.pop_back();
-            }
-        }
-        trial.pop_back();
-        if (ok) {
-            m_candidates.push_back(pos);
-        }
-    }
-}
-
-// 手札の枠と、自動で進めるかどうかを計算し直す（盤面や手番が変わったとき）
-void GuiApp::refreshTurnState()
-{
-    m_slots.clear();
+    m_placeHints.clear();
+    m_usable.clear();
+    m_mustPass = false;
     m_autoPending = false;
     if (!m_game.has_value() || m_game->isOver()) {
         return;
     }
-    const Player& player = m_game->currentPlayer();
-    const bool limitReached = m_game->hasPlayedCardThisTurn();
-    for (const auto card : player.hand()) {
-        m_slots.push_back(HandSlot{card, false, 1, !limitReached && m_game->canPlay(card)});
+    const bool myTurn = isHumanTurn() && handOwner() == m_game->currentColor();
+    for (const auto card : shownHand()) {
+        m_usable.push_back(myTurn && m_game->canUseCard(card));
     }
-    if (player.bonusPlaces() > 0) {
-        m_slots.push_back(HandSlot{CardType::Place, true, player.bonusPlaces(), m_game->canPlay(CardType::Place)});
+    m_mustPass = m_game->mustPass();
+    if (isHumanTurn()) {
+        m_placeHints = m_game->placeableCells();
     }
-    m_autoPending = isCpu(m_game->currentColor()) || !m_game->canPlayAnything();
-}
-
-void GuiApp::addLog(std::string line)
-{
-    m_log.push_back(std::move(line));
-    while (m_log.size() > kMaxLogLines) {
-        m_log.pop_front();
-    }
+    const bool anyUsable = std::ranges::any_of(m_usable, [](bool usable) { return usable; });
+    m_autoPending = isCpu(m_game->currentColor()) || (m_mustPass && !anyUsable);
 }
 
 } // namespace cardflow::app

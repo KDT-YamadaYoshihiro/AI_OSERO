@@ -1,14 +1,14 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
-#include <span>
+#include <vector>
 
 #include "cardflow/board.hpp"
 #include "cardflow/card.hpp"
-#include "cardflow/card_effects.hpp"
 #include "cardflow/deck.hpp"
-#include "cardflow/player.hpp"
+#include "cardflow/rules.hpp"
 #include "cardflow/types.hpp"
 
 namespace cardflow {
@@ -20,58 +20,83 @@ struct GameResult {
     int whiteStones = 0;
 };
 
-// ゲーム進行（仕様書「ゲーム進行の確定」）
-//   ターン開始処理 → カードを使う（任意、通常カードは 1 枚まで＋追加 Place）
-//   → endTurn（手札補充）→ 相手のターン。
-//   両者連続パス、またはカード使用直後にどちらかの石が 0 個になったら終了。
+enum class CardStatus : std::uint8_t {
+    Ok,
+    NotInHand,      // 手札にない
+    AlreadyUsed,    // このターンはすでにカードを使った（連打で 1 つ目を置いた後も含む）
+    InvalidTarget,  // 対象が不正（対象のないカードに対象を渡した場合も含む）
+    GameOver,
+};
+
+// ゲーム進行（仕様書 1.2）
+//   番の始め（3 回ごとに 1 枚引く）→ カードを 1 枚まで使う（任意）→ 石を置く（連打なら 2 つ）
+//   → 相手の番。置けなければパス。
 class Game {
 public:
-    // 初期盤面・標準デッキ（seed でシャッフル）で開始し、黒のターンを始める
+    static constexpr int kStartingHand = 2;
+    static constexpr int kMaxHand = 3;
+    static constexpr int kDrawInterval = 3;  // 自分の番が 3 回来るごとに 1 枚引く
+
+    // 初期盤面・標準の山札（seed でシャッフル）で始める
     explicit Game(std::uint32_t seed);
-    // 任意の盤面・デッキで開始する（テスト用）
+    // 任意の盤面・山札で始める（テスト用）
     Game(Board board, Deck deck);
 
     [[nodiscard]] const Board& board() const noexcept { return m_board; }
     [[nodiscard]] const Deck& deck() const noexcept { return m_deck; }
-    [[nodiscard]] const Player& player(Color color) const noexcept;
-    [[nodiscard]] const Player& currentPlayer() const noexcept { return player(m_current); }
+    [[nodiscard]] const std::vector<CardType>& hand(Color color) const noexcept;
     [[nodiscard]] Color currentColor() const noexcept { return m_current; }
-    [[nodiscard]] int round() const noexcept { return m_round; }
+    [[nodiscard]] int turnNumber() const noexcept { return m_turnNumber; }  // 通算の手番（1 始まり）
     [[nodiscard]] bool isOver() const noexcept { return m_result.has_value(); }
     [[nodiscard]] const std::optional<GameResult>& result() const noexcept { return m_result; }
 
-    // このターンに通常のカードを使ったか
-    [[nodiscard]] bool hasPlayedCardThisTurn() const noexcept { return m_playedNormalCard; }
-    // このターンにカード（追加 Place を含む）を 1 枚でも使ったか
-    [[nodiscard]] bool hasActedThisTurn() const noexcept { return m_actedThisTurn; }
-    // 直前のターンがパスだったか
-    [[nodiscard]] bool lastTurnWasPass() const noexcept { return m_previousTurnPassed; }
+    // このターンの状態
+    [[nodiscard]] bool cardUsedThisTurn() const noexcept { return m_cardUsed; }
+    [[nodiscard]] int placedThisTurn() const noexcept { return m_placed; }
+    [[nodiscard]] int placementsLeft() const noexcept { return m_placementsLeft; }
+    [[nodiscard]] bool freeMoveActive() const noexcept { return m_freeMove; }
+    [[nodiscard]] bool lastTurnWasPass() const noexcept { return m_previousPassed; }
+    // 直前に置かれた石（なければ std::nullopt）
+    [[nodiscard]] const std::optional<Position>& lastPlaced() const noexcept { return m_lastPlaced; }
 
-    // 手番のプレイヤーが、いま使えるカードを 1 枚でも持っているか
-    [[nodiscard]] bool canPlayAnything() const;
-    // そのカードを、いま使えるか（手札・EP・1 ターン 1 枚・対象の存在）
-    [[nodiscard]] bool canPlay(CardType type) const;
+    // ─── カード ──────────────────────────────────────────────────────
+    // いま使えるか（手札・1 ターン 1 枚・対象の存在）
+    [[nodiscard]] bool canUseCard(CardType type) const;
+    // 対象として選べるマス（対象のないカードは空）
+    [[nodiscard]] std::vector<Position> cardTargets(CardType type) const;
+    CardStatus useCard(CardType type, std::optional<Position> target = std::nullopt);
 
-    // 手番のプレイヤーがカードを使う
-    PlayResult play(CardType type, std::span<const Position> targets);
+    // ─── 石を置く ────────────────────────────────────────────────────
+    // いま置けるマス（合法手。自由が有効なら石の隣の空マスも）
+    [[nodiscard]] std::vector<Position> placeableCells() const;
+    [[nodiscard]] bool canPlace(Position pos) const;
+    // 置いて裏返す。置けなければ std::nullopt。置き終えたら自動で相手の番へ
+    std::optional<rules::PlaceResult> place(Position pos);
 
-    // 手番を終える（手札補充 → 終了判定 → 相手のターン開始）
-    void endTurn();
+    // 置けるマスがなく、パスするしかないか（このターンに石を置いていない場合のみ）
+    [[nodiscard]] bool mustPass() const;
+    // パスする（mustPass のときだけ。成功時 true）
+    bool pass();
 
 private:
-    [[nodiscard]] Player& mutablePlayer(Color color) noexcept;
-    [[nodiscard]] bool usesBonusPlace(CardType type) const noexcept;
+    [[nodiscard]] std::vector<CardType>& mutableHand(Color color) noexcept;
+    void startTurn();
+    void nextTurn(bool passed);
+    [[nodiscard]] bool checkFinished();
     void finish();
 
     Board m_board;
     Deck m_deck;
-    Player m_black{Color::Black};
-    Player m_white{Color::White};
+    std::array<std::vector<CardType>, 2> m_hands;
+    std::array<int, 2> m_ownTurns{};  // それぞれの番が来た回数
     Color m_current = Color::Black;
-    int m_round = 1;
-    bool m_playedNormalCard = false;
-    bool m_actedThisTurn = false;
-    bool m_previousTurnPassed = false;
+    int m_turnNumber = 1;
+    bool m_cardUsed = false;
+    int m_placed = 0;
+    int m_placementsLeft = 1;
+    bool m_freeMove = false;
+    bool m_previousPassed = false;
+    std::optional<Position> m_lastPlaced;
     std::optional<GameResult> m_result;
 };
 

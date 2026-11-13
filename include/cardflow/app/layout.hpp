@@ -30,22 +30,18 @@ namespace layout {
 constexpr int kWindowWidth = 1280;
 constexpr int kWindowHeight = 720;
 
-// 盤面
-constexpr int kCellSize = 72;
-constexpr int kBoardLeft = 56;
-constexpr int kBoardTop = 104;
+// 盤面（画面中央）
+constexpr int kCellSize = 64;
 constexpr int kBoardPixels = kCellSize * 8;
+constexpr int kBoardLeft = (kWindowWidth - kBoardPixels) / 2;
+constexpr int kBoardTop = 112;
 
-// 右側のパネル
-constexpr int kPanelLeft = 680;
-constexpr int kPanelWidth = kWindowWidth - kPanelLeft - 24;
-
-// 手札（通常 3 枚＋追加 Place 1 枚まで）
-constexpr int kMaxHandSlots = 4;
-constexpr int kCardWidth = 132;
-constexpr int kCardHeight = 180;
-constexpr int kCardGap = 12;
-constexpr int kHandTop = 236;
+// 手札（画面下）
+constexpr int kMaxHandSlots = 3;
+constexpr int kCardWidth = 200;
+constexpr int kCardHeight = 72;
+constexpr int kCardGap = 16;
+constexpr int kHandTop = kBoardTop + kBoardPixels + 12;
 
 // メニュー（タイトル・強さ・色の選択）のボタン数
 constexpr int kMaxMenuButtons = 3;
@@ -57,13 +53,12 @@ constexpr int kMaxMenuButtons = 3;
 // 画面座標にある盤面のマス（盤外なら std::nullopt）
 [[nodiscard]] std::optional<Position> cellAt(int x, int y) noexcept;
 
-[[nodiscard]] Rect statusRect() noexcept;           // 石数・EP・山札
+[[nodiscard]] Rect hintRect() noexcept;     // いまやること
+[[nodiscard]] Rect messageRect() noexcept;  // 直前の出来事
+[[nodiscard]] Rect playerPanelRect(Color color) noexcept;  // 黒は左、白は右
+[[nodiscard]] Rect handLabelRect() noexcept;
 [[nodiscard]] Rect handCardRect(int slot) noexcept;  // slot: 0..kMaxHandSlots-1
-[[nodiscard]] Rect useButtonRect() noexcept;
-[[nodiscard]] Rect cancelButtonRect() noexcept;
-[[nodiscard]] Rect endTurnButtonRect() noexcept;
-[[nodiscard]] Rect hintRect() noexcept;
-[[nodiscard]] Rect logRect() noexcept;
+[[nodiscard]] Rect passButtonRect() noexcept;
 
 [[nodiscard]] Rect menuButtonRect(int index) noexcept;  // index: 0..kMaxMenuButtons-1
 [[nodiscard]] Rect backButtonRect() noexcept;

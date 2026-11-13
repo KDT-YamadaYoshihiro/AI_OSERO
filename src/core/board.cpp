@@ -1,22 +1,14 @@
 #include "cardflow/board.hpp"
 
-#include <utility>
-
 namespace cardflow {
 
 Board Board::createInitial()
 {
     Board board;
-    // 中央 4 マス
-    board.m_cells[3][3] = Stone{.color = Color::Black};
-    board.m_cells[3][4] = Stone{.color = Color::White};
-    board.m_cells[4][3] = Stone{.color = Color::White};
-    board.m_cells[4][4] = Stone{.color = Color::Black};
-    // 斜め外側 4 マス
-    board.m_cells[2][2] = Stone{.color = Color::White};
-    board.m_cells[2][5] = Stone{.color = Color::Black};
-    board.m_cells[5][2] = Stone{.color = Color::Black};
-    board.m_cells[5][5] = Stone{.color = Color::White};
+    (void)board.placeStone(Position{3, 3}, Color::White);  // d4
+    (void)board.placeStone(Position{3, 4}, Color::Black);  // e4
+    (void)board.placeStone(Position{4, 3}, Color::Black);  // d5
+    (void)board.placeStone(Position{4, 4}, Color::White);  // e5
     return board;
 }
 
@@ -35,11 +27,6 @@ bool Board::isEmpty(Position pos) const
     return isInside(pos) && std::holds_alternative<std::monostate>(cellAt(pos));
 }
 
-bool Board::hasStone(Position pos) const
-{
-    return isInside(pos) && std::holds_alternative<Stone>(cellAt(pos));
-}
-
 bool Board::isWall(Position pos) const
 {
     return isInside(pos) && std::holds_alternative<Wall>(cellAt(pos));
@@ -47,18 +34,23 @@ bool Board::isWall(Position pos) const
 
 std::optional<Stone> Board::stoneAt(Position pos) const
 {
-    if (!hasStone(pos)) {
+    if (!isInside(pos)) {
         return std::nullopt;
     }
-    return std::get<Stone>(cellAt(pos));
+    if (const auto* stone = std::get_if<Stone>(&cellAt(pos))) {
+        return *stone;
+    }
+    return std::nullopt;
 }
 
-std::optional<Wall> Board::wallAt(Position pos) const
+bool Board::hasAdjacentStone(Position pos) const
 {
-    if (!isWall(pos)) {
-        return std::nullopt;
+    for (const auto& dir : kDirections) {
+        if (stoneAt(Position{pos.row + dir.row, pos.col + dir.col}).has_value()) {
+            return true;
+        }
     }
-    return std::get<Wall>(cellAt(pos));
+    return false;
 }
 
 int Board::countStones(Color color) const
@@ -87,97 +79,31 @@ int Board::countEmpty() const
     return count;
 }
 
-std::vector<Position> Board::neighbors(Position pos) const
-{
-    std::vector<Position> result;
-    if (!isInside(pos)) {
-        return result;
-    }
-    for (const auto& dir : kDirections) {
-        const Position next{pos.row + dir.row, pos.col + dir.col};
-        if (isInside(next)) {
-            result.push_back(next);
-        }
-    }
-    return result;
-}
-
 bool Board::placeStone(Position pos, Color color)
 {
     if (!isEmpty(pos)) {
         return false;
     }
-    cellAt(pos) = Stone{.color = color};
+    cellAt(pos) = Stone{color, false};
     return true;
 }
 
-bool Board::placeWall(Position pos, std::optional<Color> owner)
+bool Board::placeWall(Position pos)
 {
     if (!isEmpty(pos)) {
         return false;
     }
-    cellAt(pos) = Wall{.owner = owner};
+    cellAt(pos) = Wall{};
     return true;
 }
 
-bool Board::removeStone(Position pos)
+bool Board::setStone(Position pos, const Stone& stone)
 {
-    if (!hasStone(pos)) {
-        return false;
-    }
-    cellAt(pos) = std::monostate{};
-    return true;
-}
-
-bool Board::flipStone(Position pos)
-{
-    if (!hasStone(pos)) {
-        return false;
-    }
-    auto& stone = std::get<Stone>(cellAt(pos));
-    stone.color = opponentOf(stone.color);
-    return true;
-}
-
-bool Board::replaceStone(Position pos, const Stone& stone)
-{
-    if (!hasStone(pos)) {
+    if (!stoneAt(pos).has_value()) {
         return false;
     }
     cellAt(pos) = stone;
     return true;
-}
-
-bool Board::moveStone(Position from, Position to)
-{
-    if (!hasStone(from) || !isEmpty(to)) {
-        return false;
-    }
-    cellAt(to) = std::exchange(cellAt(from), std::monostate{});
-    return true;
-}
-
-bool Board::swapStones(Position a, Position b)
-{
-    if (!hasStone(a) || !hasStone(b) || a == b) {
-        return false;
-    }
-    std::swap(cellAt(a), cellAt(b));
-    return true;
-}
-
-int Board::setCoverAll(Color color, bool covered)
-{
-    int count = 0;
-    for (auto& row : m_cells) {
-        for (auto& cell : row) {
-            if (auto* stone = std::get_if<Stone>(&cell); stone != nullptr && stone->color == color) {
-                stone->covered = covered;
-                ++count;
-            }
-        }
-    }
-    return count;
 }
 
 } // namespace cardflow

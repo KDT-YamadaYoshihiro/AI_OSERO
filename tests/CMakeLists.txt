@@ -15,13 +15,11 @@ FetchContent_MakeAvailable(googletest)
 add_executable(cardflow_tests
     ai_test.cpp
     board_test.cpp
-    card_effects_test.cpp
     card_test.cpp
     deck_test.cpp
     game_test.cpp
     gui_app_test.cpp
     layout_test.cpp
-    player_test.cpp
     rules_test.cpp
     text_test.cpp
 )

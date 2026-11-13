@@ -6,6 +6,7 @@
 #include "cardflow/board.hpp"
 
 using cardflow::Board;
+using cardflow::Color;
 using cardflow::Position;
 using cardflow::app::Rect;
 namespace app = cardflow::app;
@@ -22,6 +23,12 @@ bool insideWindow(const Rect& rect)
 {
     return rect.x >= 0 && rect.y >= 0 && rect.right() <= layout::kWindowWidth &&
            rect.bottom() <= layout::kWindowHeight;
+}
+
+TEST(LayoutTest, BoardIsCentered)
+{
+    const Rect board = app::boardRect();
+    EXPECT_EQ(board.centerX(), layout::kWindowWidth / 2);
 }
 
 TEST(LayoutTest, CellCenterMapsBackToCell)
@@ -48,9 +55,13 @@ TEST(LayoutTest, OutsideBoardIsNoCell)
 
 TEST(LayoutTest, PlayingAreasFitAndDoNotOverlap)
 {
-    std::vector<Rect> areas{app::boardRect(),      app::statusRect(),       app::useButtonRect(),
-                            app::cancelButtonRect(), app::endTurnButtonRect(), app::hintRect(),
-                            app::logRect()};
+    std::vector<Rect> areas{app::boardRect(),
+                            app::hintRect(),
+                            app::messageRect(),
+                            app::playerPanelRect(Color::Black),
+                            app::playerPanelRect(Color::White),
+                            app::handLabelRect(),
+                            app::passButtonRect()};
     for (int slot = 0; slot < layout::kMaxHandSlots; ++slot) {
         areas.push_back(app::handCardRect(slot));
     }

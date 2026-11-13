@@ -3,7 +3,6 @@
 #include <array>
 #include <optional>
 #include <variant>
-#include <vector>
 
 #include "cardflow/stone.hpp"
 #include "cardflow/types.hpp"
@@ -27,9 +26,7 @@ public:
     // 空の盤面を作る
     Board() = default;
 
-    // 初期配置（各 4 個。仕様書「CPU 対戦の確定」）の盤面を作る
-    //   中央: d4 = 黒, e4 = 白, d5 = 白, e5 = 黒
-    //   斜め: c3 = 白, f3 = 黒, c6 = 黒, f6 = 白
+    // 通常のオセロの初期配置: d4 = 白, e4 = 黒, d5 = 黒, e5 = 白
     [[nodiscard]] static Board createInitial();
 
     [[nodiscard]] static constexpr bool isInside(Position pos) noexcept
@@ -37,36 +34,28 @@ public:
         return pos.row >= 0 && pos.row < kSize && pos.col >= 0 && pos.col < kSize;
     }
 
+    [[nodiscard]] static constexpr bool isCorner(Position pos) noexcept
+    {
+        return (pos.row == 0 || pos.row == kSize - 1) && (pos.col == 0 || pos.col == kSize - 1);
+    }
+
     // ─── 参照 ────────────────────────────────────────────────────────
     [[nodiscard]] bool isEmpty(Position pos) const;
-    [[nodiscard]] bool hasStone(Position pos) const;
     [[nodiscard]] bool isWall(Position pos) const;
     [[nodiscard]] std::optional<Stone> stoneAt(Position pos) const;
-    [[nodiscard]] std::optional<Wall> wallAt(Position pos) const;
+    // 8 方向のどこかに石があるか
+    [[nodiscard]] bool hasAdjacentStone(Position pos) const;
 
     [[nodiscard]] int countStones(Color color) const;
     [[nodiscard]] int countEmpty() const;
 
-    // 盤面内にある隣接マス（最大 8 個）
-    [[nodiscard]] std::vector<Position> neighbors(Position pos) const;
-
     // ─── 変更（成功時 true）────────────────────────────────────────────
     // 空マスに石を置く
     [[nodiscard]] bool placeStone(Position pos, Color color);
-    // 空マスに壁を置く
-    [[nodiscard]] bool placeWall(Position pos, std::optional<Color> owner = std::nullopt);
-    // 石を取り除く（壁は対象外）
-    [[nodiscard]] bool removeStone(Position pos);
-    // 石の色を反転する（保護状態は維持）
-    [[nodiscard]] bool flipStone(Position pos);
-    // 既存の石を差し替える（保護状態の付与・解除に使う）
-    [[nodiscard]] bool replaceStone(Position pos, const Stone& stone);
-    // 石を空マスへ移す（経路判定はカード側の責務）
-    [[nodiscard]] bool moveStone(Position from, Position to);
-    // 2 つの石を入れ替える
-    [[nodiscard]] bool swapStones(Position a, Position b);
-    // color の石すべてに Cover を付与／解除し、対象になった石の数を返す
-    int setCoverAll(Color color, bool covered);
+    // 空マスを壁にする
+    [[nodiscard]] bool placeWall(Position pos);
+    // 既存の石を差し替える（色の変更・守りの付け外し）
+    [[nodiscard]] bool setStone(Position pos, const Stone& stone);
 
 private:
     using Cell = std::variant<std::monostate, Stone, Wall>;
