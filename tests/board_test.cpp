@@ -19,16 +19,22 @@ TEST(BoardTest, DefaultBoardIsEmpty)
     EXPECT_EQ(board.countStones(Color::White), 0);
 }
 
-TEST(BoardTest, InitialBoardHasFourCenterStones)
+TEST(BoardTest, InitialBoardHasFourStonesEach)
 {
     const Board board = Board::createInitial();
+    // 中央
     EXPECT_EQ(board.stoneAt({3, 3})->color, Color::Black);
     EXPECT_EQ(board.stoneAt({3, 4})->color, Color::White);
     EXPECT_EQ(board.stoneAt({4, 3})->color, Color::White);
     EXPECT_EQ(board.stoneAt({4, 4})->color, Color::Black);
-    EXPECT_EQ(board.countStones(Color::Black), 2);
-    EXPECT_EQ(board.countStones(Color::White), 2);
-    EXPECT_EQ(board.countEmpty(), 60);
+    // 斜め外側
+    EXPECT_EQ(board.stoneAt({2, 2})->color, Color::White);
+    EXPECT_EQ(board.stoneAt({2, 5})->color, Color::Black);
+    EXPECT_EQ(board.stoneAt({5, 2})->color, Color::Black);
+    EXPECT_EQ(board.stoneAt({5, 5})->color, Color::White);
+    EXPECT_EQ(board.countStones(Color::Black), 4);
+    EXPECT_EQ(board.countStones(Color::White), 4);
+    EXPECT_EQ(board.countEmpty(), 56);
 }
 
 TEST(BoardTest, IsInsideChecksBounds)
@@ -118,13 +124,13 @@ TEST(BoardTest, ReplaceStoneRequiresExistingStone)
 TEST(BoardTest, MoveStoneToEmptyCell)
 {
     Board board = Board::createInitial();
-    EXPECT_TRUE(board.moveStone({3, 3}, {2, 2}));
+    EXPECT_TRUE(board.moveStone({3, 3}, {2, 3}));
     EXPECT_TRUE(board.isEmpty({3, 3}));
-    EXPECT_EQ(board.stoneAt({2, 2})->color, Color::Black);
-    EXPECT_FALSE(board.moveStone({2, 2}, {3, 4}));  // 移動先に石
+    EXPECT_EQ(board.stoneAt({2, 3})->color, Color::Black);
+    EXPECT_FALSE(board.moveStone({2, 3}, {3, 4}));  // 移動先に石
     EXPECT_FALSE(board.moveStone({0, 0}, {0, 1}));  // 移動元が空
-    ASSERT_TRUE(board.placeWall({1, 1}));
-    EXPECT_FALSE(board.moveStone({2, 2}, {1, 1}));  // 移動先が壁
+    ASSERT_TRUE(board.placeWall({1, 3}));
+    EXPECT_FALSE(board.moveStone({2, 3}, {1, 3}));  // 移動先が壁
 }
 
 TEST(BoardTest, SwapStones)

@@ -32,7 +32,11 @@ int main(int argc, char* argv[])
         seed = parsed;
     }
 
+    const auto options = cardflow::ui::askGameOptions(std::cin, std::cout);
+    if (!options.has_value()) {
+        return 0;
+    }
     std::cout << "（seed: " << seed << "）\n";
-    cardflow::ui::runConsoleGame(std::cin, std::cout, seed);
+    cardflow::ui::runConsoleGame(std::cin, std::cout, seed, *options);
     return 0;
 }

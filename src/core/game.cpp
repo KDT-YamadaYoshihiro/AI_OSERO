@@ -72,6 +72,10 @@ PlayResult Game::play(CardType type, std::span<const Position> targets)
         m_playedNormalCard = true;
         m_deck.discard(type);
     }
+    // 全滅による終局（どちらかの石が 0 個）
+    if (m_board.countStones(Color::Black) == 0 || m_board.countStones(Color::White) == 0) {
+        finish();
+    }
     return result;
 }
 

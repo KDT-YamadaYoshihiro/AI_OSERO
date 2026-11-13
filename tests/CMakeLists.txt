@@ -13,6 +13,7 @@ FetchContent_Declare(googletest
 FetchContent_MakeAvailable(googletest)
 
 add_executable(cardflow_tests
+    ai_test.cpp
     board_test.cpp
     board_view_test.cpp
     card_effects_test.cpp

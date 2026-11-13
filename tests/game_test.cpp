@@ -51,7 +51,19 @@ TEST(GameTest, StartsWithDealtHandsAndBlackToMove)
     EXPECT_EQ(game.player(Color::Black).ep(), 3);
     EXPECT_EQ(game.player(Color::White).ep(), 0);
     EXPECT_EQ(game.deck().drawPileSize(), 24u);
-    EXPECT_EQ(game.board().countStones(Color::Black), 2);
+    EXPECT_EQ(game.board().countStones(Color::Black), 4);
+}
+
+TEST(GameTest, WipeoutEndsGameImmediately)
+{
+    const Board board = makeBoard({"BW......", "........", "........", "........",
+                                   "........", "........", "........", "........"});
+    Game game(board, scriptedDeck({CardType::Place, CardType::Block, CardType::Restore},
+                                  {CardType::Block, CardType::Shield, CardType::Restore}, {}));
+    ASSERT_TRUE(game.play(CardType::Place, Targets{{0, 2}, {7, 7}}).ok());
+    ASSERT_TRUE(game.isOver());
+    EXPECT_EQ(game.result()->winner, Color::Black);
+    EXPECT_EQ(game.result()->whiteStones, 0);
 }
 
 TEST(GameTest, OneNormalCardPerTurnAndRefillAtTurnEnd)
@@ -114,7 +126,7 @@ TEST(GameTest, TwoConsecutivePassesEndTheGame)
     EXPECT_TRUE(game.lastTurnWasPass());
     game.endTurn();  // 白パス
     ASSERT_TRUE(game.isOver());
-    EXPECT_FALSE(game.result()->winner.has_value());  // 2 対 2 で引き分け
+    EXPECT_FALSE(game.result()->winner.has_value());  // 4 対 4 で引き分け
     EXPECT_EQ(game.play(CardType::Place, Targets{{0, 0}, {0, 1}}).status, PlayStatus::GameOver);
 }
 

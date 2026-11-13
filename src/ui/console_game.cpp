@@ -169,16 +169,116 @@ std::string renderStatus(const Game& game)
     return out;
 }
 
-void runConsoleGame(std::istream& in, std::ostream& out, std::uint32_t seed)
+namespace {
+
+// メニューの番号入力（1..max）。q / 入力切れは std::nullopt
+std::optional<int> readChoice(std::istream& in, std::ostream& out, std::string_view prompt, int max)
+{
+    while (true) {
+        out << prompt << "\n> " << std::flush;
+        std::string line;
+        if (!std::getline(in, line)) {
+            return std::nullopt;
+        }
+        const auto command = parseCommand(line);
+        if (command.has_value() && command->kind == Command::Kind::Quit) {
+            return std::nullopt;
+        }
+        if (command.has_value() && command->kind == Command::Kind::PlayCard && command->targets.empty() &&
+            command->cardNumber <= max) {
+            return command->cardNumber;
+        }
+        out << "1〜" << max << " の番号で選んでください。\n";
+    }
+}
+
+std::string playerLabel(Color color, const GameOptions& options)
+{
+    std::string label{colorName(color)};
+    if (options.cpuColor.has_value()) {
+        label += *options.cpuColor == color ? "（CPU・" + std::string{ai::difficultyName(options.difficulty)} + "）"
+                                            : "（あなた）";
+    }
+    return label;
+}
+
+std::string describeAction(const ai::Action& action)
+{
+    std::string text{cardInfo(action.card).name};
+    for (const auto& pos : action.targets) {
+        text += ' ';
+        text += formatPosition(pos);
+    }
+    return text;
+}
+
+// CPU の 1 ターン分を進める
+void runCpuTurn(Game& game, ai::CpuPlayer& cpu, std::ostream& out, const GameOptions& options)
+{
+    const std::string label = playerLabel(game.currentColor(), options);
+    bool acted = false;
+    while (const auto action = cpu.chooseAction(game)) {
+        const auto result = game.play(action->card, action->targets);
+        if (!result.ok()) {
+            break;  // 列挙済みの手なので通常は起きない
+        }
+        acted = true;
+        out << label << "： " << describeAction(*action) << describeResult(result) << '\n';
+        if (game.isOver()) {
+            return;
+        }
+    }
+    out << label << (acted ? "：ターン終了\n" : "：パス\n");
+    game.endTurn();
+}
+
+} // namespace
+
+std::optional<GameOptions> askGameOptions(std::istream& in, std::ostream& out)
+{
+    out << "CardFlow Othello へようこそ！（q で終了）\n";
+    const auto mode = readChoice(in, out, "モードを選んでください: 1) 2人対戦  2) CPU対戦", 2);
+    if (!mode.has_value()) {
+        return std::nullopt;
+    }
+    GameOptions options;
+    if (*mode == 1) {
+        return options;
+    }
+    const auto level = readChoice(in, out, "CPU の強さ: 1) 弱い  2) 普通  3) 強い", 3);
+    if (!level.has_value()) {
+        return std::nullopt;
+    }
+    options.difficulty = static_cast<ai::Difficulty>(*level - 1);
+    const auto side = readChoice(in, out, "あなたの色: 1) 黒 ●（先手）  2) 白 ○（後手）", 2);
+    if (!side.has_value()) {
+        return std::nullopt;
+    }
+    options.cpuColor = *side == 1 ? Color::White : Color::Black;
+    return options;
+}
+
+void runConsoleGame(std::istream& in, std::ostream& out, std::uint32_t seed, const GameOptions& options)
 {
     Game game(seed);
-    out << "CardFlow Othello へようこそ！（h でヘルプ）\n";
+    std::optional<ai::CpuPlayer> cpu;
+    if (options.cpuColor.has_value()) {
+        cpu.emplace(options.difficulty, seed ^ 0x9E3779B9u);
+    }
+    out << "対戦を始めます（h でヘルプ）\n";
     bool showStatus = true;
 
     while (!game.isOver()) {
+        const Color current = game.currentColor();
+        if (cpu.has_value() && current == options.cpuColor) {
+            runCpuTurn(game, *cpu, out, options);
+            showStatus = true;
+            continue;
+        }
+        const std::string label = playerLabel(current, options);
         if (!game.canPlayAnything()) {
             out << renderStatus(game);
-            out << colorName(game.currentColor())
+            out << label
                 << (game.hasActedThisTurn() ? "：これ以上使えるカードがないためターン終了します。\n"
                                             : "：使えるカードがないためパスします。\n");
             game.endTurn();
@@ -189,7 +289,7 @@ void runConsoleGame(std::istream& in, std::ostream& out, std::uint32_t seed)
             out << renderStatus(game);
             showStatus = false;
         }
-        out << colorName(game.currentColor()) << " > " << std::flush;
+        out << label << " > " << std::flush;
 
         std::string line;
         if (!std::getline(in, line)) {
@@ -210,7 +310,7 @@ void runConsoleGame(std::istream& in, std::ostream& out, std::uint32_t seed)
             out << "ゲームを中断しました。\n";
             return;
         case Command::Kind::EndTurn:
-            out << colorName(game.currentColor()) << (game.hasActedThisTurn() ? "：ターン終了\n" : "：パス\n");
+            out << label << (game.hasActedThisTurn() ? "：ターン終了\n" : "：パス\n");
             game.endTurn();
             showStatus = true;
             break;
@@ -241,7 +341,7 @@ void runConsoleGame(std::istream& in, std::ostream& out, std::uint32_t seed)
     out << renderStatus(game);
     out << "\n=== ゲーム終了 ===\n黒 ● " << result.blackStones << " 対 白 ○ " << result.whiteStones << " … ";
     if (result.winner.has_value()) {
-        out << colorName(*result.winner) << " の勝ち！\n";
+        out << playerLabel(*result.winner, options) << " の勝ち！\n";
     } else {
         out << "引き分け\n";
     }
