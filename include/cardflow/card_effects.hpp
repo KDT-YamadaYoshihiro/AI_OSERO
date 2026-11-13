@@ -25,7 +25,30 @@ enum class PlayStatus : std::uint8_t {
     NotInHand,      // 手札（Reserve の追加分を含む）にない
     NotEnoughEp,    // EP 不足
     InvalidTarget,  // 対象の数・位置が不正、または発動条件を満たさない
+    CardLimitReached,  // このターンはすでに通常のカードを使った（Game が判定）
+    GameOver,          // ゲームが終了している（Game が判定）
 };
+
+// カードが要求する対象の数（Place / Move / Swap = 2、Block / Shield / Reversal = 1、他 = 0）
+[[nodiscard]] constexpr int targetCount(CardType type) noexcept
+{
+    switch (type) {
+    case CardType::Place:
+    case CardType::Move:
+    case CardType::Swap:
+        return 2;
+    case CardType::Block:
+    case CardType::Shield:
+    case CardType::Reversal:
+        return 1;
+    case CardType::Cover:
+    case CardType::Burst:
+    case CardType::Reserve:
+    case CardType::Restore:
+        return 0;
+    }
+    return 0;
+}
 
 struct PlayResult {
     PlayStatus status = PlayStatus::Ok;
@@ -40,6 +63,9 @@ struct PlayResult {
 // 対象が正しく、効果を発動できるか（盤面・プレイヤーは変更しない）
 [[nodiscard]] bool canApplyEffect(CardType type, const Board& board, const Player& actor,
                                   std::span<const Position> targets);
+
+// 有効な対象の組が 1 つでも存在するか（手札・EP は見ない）
+[[nodiscard]] bool hasValidTarget(CardType type, const Board& board, const Player& actor);
 
 // 効果だけを適用する（手札・EP は扱わない）。不正なら何も変更せず InvalidTarget
 PlayResult applyEffect(CardType type, Board& board, Player& actor, std::span<const Position> targets);
