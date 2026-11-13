@@ -18,6 +18,23 @@ struct GameResult {
     std::optional<Color> winner;  // std::nullopt は引き分け
     int blackStones = 0;
     int whiteStones = 0;
+    std::optional<Color> resignedBy;  // 投了した側（投了で終わった場合）
+};
+
+// 対戦の途中状態（中断データの保存・復元に使う）。終局後の状態は扱わない
+struct GameState {
+    Board board;
+    std::vector<CardType> deck;  // 末尾から引く
+    std::array<std::vector<CardType>, 2> hands;  // [0] = 黒、[1] = 白
+    std::array<int, 2> ownTurns{};               // それぞれの番が来た回数
+    Color current = Color::Black;
+    int turnNumber = 1;
+    bool cardUsed = false;
+    int placed = 0;
+    int placementsLeft = 1;
+    bool freeMove = false;
+    bool previousPassed = false;
+    std::optional<Position> lastPlaced;
 };
 
 enum class CardStatus : std::uint8_t {
@@ -78,7 +95,18 @@ public:
     // パスする（mustPass のときだけ。成功時 true）
     bool pass();
 
+    // 投了する（who の負け）。終局後は false
+    bool resign(Color who);
+
+    // ─── 中断・再開 ──────────────────────────────────────────────────
+    // 途中状態を取り出す（終局後は std::nullopt）
+    [[nodiscard]] std::optional<GameState> state() const;
+    // 途中状態から再開する。値が矛盾していれば std::nullopt
+    [[nodiscard]] static std::optional<Game> restore(const GameState& state);
+
 private:
+    explicit Game(const GameState& state);
+
     [[nodiscard]] std::vector<CardType>& mutableHand(Color color) noexcept;
     void startTurn();
     void nextTurn(bool passed);

@@ -31,6 +31,7 @@ target_link_libraries(cardflow_core PRIVATE cardflow_warnings)
 add_library(cardflow_app STATIC
     src/app/gui_app.cpp
     src/app/layout.cpp
+    src/app/save_data.cpp
     src/app/text.cpp
 )
 target_link_libraries(cardflow_app

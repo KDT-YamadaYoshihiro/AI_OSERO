@@ -36,3 +36,6 @@ CMakeSettings.json.user
 
 # DxLib（各自で配置。サイズが大きいため git 管理外）
 third_party/dxlib/
+
+# 中断データ
+cardflow_save.txt

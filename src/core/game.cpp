@@ -168,6 +168,78 @@ bool Game::pass()
     return true;
 }
 
+bool Game::resign(Color who)
+{
+    if (isOver()) {
+        return false;
+    }
+    finish();
+    m_result->winner = opponentOf(who);
+    m_result->resignedBy = who;
+    return true;
+}
+
+// ─── 中断・再開 ──────────────────────────────────────────────────────
+
+std::optional<GameState> Game::state() const
+{
+    if (isOver()) {
+        return std::nullopt;
+    }
+    GameState state;
+    state.board = m_board;
+    state.deck = m_deck.cards();
+    state.hands = m_hands;
+    state.ownTurns = m_ownTurns;
+    state.current = m_current;
+    state.turnNumber = m_turnNumber;
+    state.cardUsed = m_cardUsed;
+    state.placed = m_placed;
+    state.placementsLeft = m_placementsLeft;
+    state.freeMove = m_freeMove;
+    state.previousPassed = m_previousPassed;
+    state.lastPlaced = m_lastPlaced;
+    return state;
+}
+
+std::optional<Game> Game::restore(const GameState& state)
+{
+    const int maxPlacements = state.cardUsed ? 2 : 1;
+    const bool countsOk = state.turnNumber >= 1 && state.ownTurns[0] >= 1 && state.ownTurns[1] >= 0 &&
+                          state.placed >= 0 && state.placementsLeft >= 1 &&
+                          state.placed + state.placementsLeft <= maxPlacements;
+    const bool handsOk = std::ranges::all_of(state.hands, [](const auto& hand) {
+        return static_cast<int>(hand.size()) <= kMaxHand;
+    });
+    const bool lastOk = !state.lastPlaced.has_value() || state.board.stoneAt(*state.lastPlaced).has_value();
+    // 置いた後に同じ番が続くのは連打のときだけ。自由は置く前だけ有効
+    const bool flagsOk = (state.placed == 0 || state.cardUsed) && (!state.freeMove || (state.cardUsed && state.placed == 0));
+    if (!countsOk || !handsOk || !lastOk || !flagsOk) {
+        return std::nullopt;
+    }
+    Game game(state);
+    if (game.checkFinished()) {
+        return std::nullopt;  // 終局している状態は再開しない
+    }
+    return game;
+}
+
+Game::Game(const GameState& state)
+    : m_board(state.board),
+      m_deck(state.deck),
+      m_hands(state.hands),
+      m_ownTurns(state.ownTurns),
+      m_current(state.current),
+      m_turnNumber(state.turnNumber),
+      m_cardUsed(state.cardUsed),
+      m_placed(state.placed),
+      m_placementsLeft(state.placementsLeft),
+      m_freeMove(state.freeMove),
+      m_previousPassed(state.previousPassed),
+      m_lastPlaced(state.lastPlaced)
+{
+}
+
 // ─── 進行 ────────────────────────────────────────────────────────────
 
 void Game::startTurn()

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -261,6 +263,160 @@ TEST(GuiAppTest, ToTitleReturnsToMenu)
     clickRect(gui, app::toTitleButtonRect());
     EXPECT_EQ(gui.screen(), Screen::Title);
     EXPECT_EQ(gui.game(), nullptr);
+}
+
+// ─── メニューバー・一時停止・投了 ────────────────────────────────────
+
+GuiApp startCpuGame(Color cpuColor, const std::filesystem::path& savePath = {})
+{
+    GuiApp gui(1, savePath);
+    GameOptions options;
+    options.cpuColor = cpuColor;
+    gui.startGame(Game(Board::createInitial(), scriptedDeck({}, {})), options);
+    return gui;
+}
+
+TEST(GuiAppTest, MenuBarShownOnlyWhilePlaying)
+{
+    GuiApp title(1);
+    EXPECT_FALSE(title.showsMenuBar());
+    GuiApp gui = startTwoPlayer();
+    EXPECT_TRUE(gui.showsMenuBar());
+    EXPECT_EQ(GuiApp::menuBarLabels().size(), static_cast<std::size_t>(app::layout::kMenuBarButtons));
+    gui = startFinishedGame();
+    EXPECT_FALSE(gui.showsMenuBar());
+}
+
+TEST(GuiAppTest, PauseStopsCpuAndBlocksBoard)
+{
+    GuiApp gui = startCpuGame(Color::Black);
+    clickRect(gui, app::menuBarButtonRect(0));  // 一時停止
+    ASSERT_EQ(gui.overlay(), app::Overlay::Paused);
+    EXPECT_EQ(gui.overlayTitle(), "一時停止中");
+    gui.update(GuiApp::kStepDelayMs * 5);
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);  // CPU は止まっている
+
+    clickRect(gui, app::overlayButtonRect(0));  // 再開
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+    gui.update(GuiApp::kStepDelayMs);
+    EXPECT_EQ(gui.game()->currentColor(), Color::White);
+}
+
+TEST(GuiAppTest, EscapeTogglesPauseAndRightClickResumes)
+{
+    GuiApp gui = startTwoPlayer();
+    gui.togglePause();
+    EXPECT_EQ(gui.overlay(), app::Overlay::Paused);
+    clickCell(gui, Position{2, 3});  // 一時停止中は置けない
+    EXPECT_EQ(gui.game()->currentColor(), Color::Black);
+    EXPECT_FALSE(gui.showsPassButton());
+    gui.togglePause();
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+    gui.togglePause();
+    gui.cancel();
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+}
+
+TEST(GuiAppTest, ResignAsksForConfirmation)
+{
+    GuiApp gui = startCpuGame(Color::White);
+    clickRect(gui, app::menuBarButtonRect(2));  // 投了
+    ASSERT_EQ(gui.overlay(), app::Overlay::ConfirmResign);
+    clickRect(gui, app::overlayButtonRect(1));  // いいえ
+    EXPECT_EQ(gui.overlay(), app::Overlay::None);
+    EXPECT_FALSE(gui.game()->isOver());
+
+    clickRect(gui, app::menuBarButtonRect(2));
+    clickRect(gui, app::overlayButtonRect(0));  // はい
+    ASSERT_TRUE(gui.game()->isOver());
+    EXPECT_EQ(gui.game()->result()->resignedBy, Color::Black);
+    EXPECT_EQ(gui.resultText(), "黒（あなた）が投了 … 白（CPU・普通）の勝ち！");
+    EXPECT_EQ(gui.message(), "黒（あなた）が投了しました");
+}
+
+TEST(GuiAppTest, ResignDuringCpuTurnIsYours)
+{
+    GuiApp gui = startCpuGame(Color::Black);  // CPU が先手
+    clickRect(gui, app::menuBarButtonRect(0));
+    clickRect(gui, app::overlayButtonRect(2));  // 一時停止 → 投了
+    ASSERT_EQ(gui.overlay(), app::Overlay::ConfirmResign);
+    clickRect(gui, app::overlayButtonRect(0));
+    EXPECT_EQ(gui.game()->result()->resignedBy, Color::White);
+}
+
+// ─── 中断・再開 ──────────────────────────────────────────────────────
+
+class GuiAppSaveTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        m_path = std::filesystem::temp_directory_path() / "cardflow_gui_app_test" / "save.txt";
+        std::filesystem::remove_all(m_path.parent_path());
+    }
+    void TearDown() override { std::filesystem::remove_all(m_path.parent_path()); }
+
+    std::filesystem::path m_path;
+};
+
+TEST_F(GuiAppSaveTest, SuspendSavesAndResumeContinues)
+{
+    GuiApp gui = startCpuGame(Color::White, m_path);
+    clickCell(gui, Position{2, 3});  // 黒 d3
+    ASSERT_EQ(gui.game()->currentColor(), Color::White);
+    const auto stonesBefore = gui.game()->board().countStones(Color::Black);
+
+    clickRect(gui, app::menuBarButtonRect(1));  // 中断して終わる
+    ASSERT_EQ(gui.screen(), Screen::Title);
+    EXPECT_TRUE(std::filesystem::exists(m_path));
+    EXPECT_TRUE(gui.hasSave());
+    EXPECT_TRUE(has(gui.notice(), "中断しました"));
+    ASSERT_EQ(gui.menuLabels().front(), "続きから");
+
+    // アプリを起動し直しても、タイトルに「続きから」が出る
+    GuiApp next(99, m_path);
+    ASSERT_TRUE(next.hasSave());
+    clickRect(next, app::menuButtonRect(0));
+    ASSERT_EQ(next.screen(), Screen::Playing);
+    EXPECT_EQ(next.message(), "中断した対戦を再開しました");
+    EXPECT_EQ(next.options().cpuColor, Color::White);
+    EXPECT_EQ(next.game()->currentColor(), Color::White);
+    EXPECT_EQ(next.game()->board().countStones(Color::Black), stonesBefore);
+    EXPECT_EQ(next.seed(), 1u);
+    EXPECT_FALSE(next.hasSave());  // 再開したデータは消える
+    EXPECT_FALSE(std::filesystem::exists(m_path));
+
+    next.update(GuiApp::kStepDelayMs);  // CPU の番から続く
+    EXPECT_EQ(next.game()->currentColor(), Color::Black);
+}
+
+TEST_F(GuiAppSaveTest, PauseMenuCanSuspend)
+{
+    GuiApp gui = startCpuGame(Color::Black, m_path);
+    gui.togglePause();
+    clickRect(gui, app::overlayButtonRect(1));  // 中断して終わる
+    EXPECT_EQ(gui.screen(), Screen::Title);
+    EXPECT_TRUE(std::filesystem::exists(m_path));
+}
+
+TEST_F(GuiAppSaveTest, BrokenSaveShowsNotice)
+{
+    std::filesystem::create_directories(m_path.parent_path());
+    std::ofstream(m_path) << "broken";
+    GuiApp gui(1, m_path);
+    ASSERT_TRUE(gui.hasSave());
+    clickRect(gui, app::menuButtonRect(0));  // 続きから
+    EXPECT_EQ(gui.screen(), Screen::Title);
+    EXPECT_EQ(gui.notice(), "中断データを読み込めませんでした");
+    EXPECT_FALSE(gui.hasSave());
+    EXPECT_EQ(gui.menuLabels().front(), "2人対戦");
+}
+
+TEST(GuiAppTest, SuspendWithoutSavePathFails)
+{
+    GuiApp gui = startTwoPlayer();
+    clickRect(gui, app::menuBarButtonRect(1));
+    EXPECT_EQ(gui.screen(), Screen::Playing);
+    EXPECT_EQ(gui.message(), "中断データを保存できませんでした");
 }
 
 } // namespace

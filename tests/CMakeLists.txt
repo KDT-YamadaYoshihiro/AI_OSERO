@@ -21,6 +21,7 @@ add_executable(cardflow_tests
     gui_app_test.cpp
     layout_test.cpp
     rules_test.cpp
+    save_data_test.cpp
     text_test.cpp
 )
 target_link_libraries(cardflow_tests PRIVATE

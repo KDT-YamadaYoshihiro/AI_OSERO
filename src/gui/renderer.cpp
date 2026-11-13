@@ -159,73 +159,97 @@ void Renderer::drawButton(const Rect& rect, std::string_view label, bool hovered
 void Renderer::draw(const app::GuiApp& app, int mouseX, int mouseY) const
 {
     fillRect(Rect{0, 0, kWindowWidth, kWindowHeight}, kBackground);
-    switch (app.screen()) {
-    case app::Screen::Title:
-        drawTitle(mouseX, mouseY);
-        break;
-    case app::Screen::Difficulty: {
-        const char* const labels[] = {"弱い", "普通", "強い"};
-        drawMenu("CPU の強さを選んでください", labels, 3, true, mouseX, mouseY);
-        break;
-    }
-    case app::Screen::ColorSelect: {
-        const char* const labels[] = {"黒（先手）", "白（後手）"};
-        drawMenu("あなたの色を選んでください", labels, 2, true, mouseX, mouseY);
-        break;
-    }
-    case app::Screen::Playing:
+    if (app.screen() == app::Screen::Playing) {
         drawPlaying(app, mouseX, mouseY);
-        break;
+    } else {
+        drawMenuScreen(app, mouseX, mouseY);
     }
 }
 
-void Renderer::drawTitle(int mouseX, int mouseY) const
+// タイトル・強さ・色の選択
+void Renderer::drawMenuScreen(const app::GuiApp& app, int mouseX, int mouseY) const
 {
-    drawCentered(Rect{0, 100, kWindowWidth, 80}, "CardFlow Othello", color(kAccent), m_fontTitle);
-    drawCentered(Rect{0, 196, kWindowWidth, 36}, "いつものオセロに、ここぞで使えるカードを 1 枚", color(kText),
-                 m_fontMedium);
-    drawCentered(Rect{0, 232, kWindowWidth, 30}, "石を置く前に、手札のカードを 1 枚使えます", color(kSubText),
-                 m_fontSmall);
-    const char* const labels[] = {"2人対戦", "CPU対戦", "終了"};
-    for (int i = 0; i < 3; ++i) {
-        const Rect rect = app::menuButtonRect(i);
-        drawButton(rect, labels[i], rect.contains(mouseX, mouseY), m_fontLarge);
+    if (app.screen() == app::Screen::Title) {
+        drawCentered(Rect{0, 90, kWindowWidth, 80}, "CardFlow Othello", color(kAccent), m_fontTitle);
+        drawCentered(Rect{0, 182, kWindowWidth, 36}, "いつものオセロに、ここぞで使えるカードを 1 枚", color(kText),
+                     m_fontMedium);
+        drawCentered(Rect{0, 216, kWindowWidth, 28}, "石を置く前に、手札のカードを 1 枚使えます", color(kSubText),
+                     m_fontSmall);
+        if (!app.notice().empty()) {
+            drawCentered(Rect{0, 248, kWindowWidth, 32}, app.notice(), color(kAccent), m_fontMedium);
+        }
+    } else {
+        drawCentered(Rect{0, 180, kWindowWidth, 60}, app.menuHeading(), color(kText), m_fontLarge);
     }
-}
-
-void Renderer::drawMenu(std::string_view heading, const char* const* labels, int count, bool withBack, int mouseX,
-                        int mouseY) const
-{
-    drawCentered(Rect{0, 180, kWindowWidth, 60}, heading, color(kText), m_fontLarge);
-    for (int i = 0; i < count; ++i) {
+    const auto labels = app.menuLabels();
+    for (int i = 0; i < static_cast<int>(labels.size()); ++i) {
         const Rect rect = app::menuButtonRect(i);
-        drawButton(rect, labels[i], rect.contains(mouseX, mouseY), m_fontLarge);
+        drawButton(rect, labels[static_cast<std::size_t>(i)], rect.contains(mouseX, mouseY), m_fontLarge);
     }
-    if (withBack) {
+    if (app.showsBackButton()) {
         const Rect back = app::backButtonRect();
         drawButton(back, "戻る", back.contains(mouseX, mouseY), m_fontMedium);
+    }
+}
+
+void Renderer::drawMenuBar(const app::GuiApp& app, int mouseX, int mouseY) const
+{
+    const Rect bar = app::menuBarRect();
+    fillRect(bar, kPanel);
+    DrawLine(bar.x, bar.bottom() - 1, bar.right(), bar.bottom() - 1, color(kBackground));
+    if (app.showsMenuBar()) {
+        const auto labels = app::GuiApp::menuBarLabels();
+        const bool interactive = app.overlay() == app::Overlay::None;
+        for (int i = 0; i < static_cast<int>(labels.size()); ++i) {
+            const Rect rect = app::menuBarButtonRect(i);
+            drawButton(rect, labels[static_cast<std::size_t>(i)], interactive && rect.contains(mouseX, mouseY),
+                       m_fontSmall);
+        }
+        drawText(app::menuBarButtonRect(static_cast<int>(labels.size())).x + 8, bar.y + 9, "Esc：一時停止",
+                 color(kSubText), m_fontSmall);
+    }
+    const std::string seed = "seed " + std::to_string(app.seed());
+    drawText(bar.right() - 16 - textWidth(seed, m_fontSmall), bar.y + 9, seed, color(kSubText), m_fontSmall);
+}
+
+void Renderer::drawOverlay(const app::GuiApp& app, int mouseX, int mouseY) const
+{
+    withAlpha(160, [&] { fillRect(Rect{0, 0, kWindowWidth, kWindowHeight}, kBackground); });
+    const Rect panel = app::overlayPanelRect();
+    fillRect(panel, kPanel);
+    frameRect(panel, kAccent, 2);
+    drawCentered(Rect{panel.x, panel.y + 24, panel.w, 60}, app.overlayTitle(), color(kAccent), m_fontLarge);
+    const auto labels = app.overlayLabels();
+    for (int i = 0; i < static_cast<int>(labels.size()); ++i) {
+        const Rect rect = app::overlayButtonRect(i);
+        const bool danger = app.overlay() == app::Overlay::ConfirmResign && i == 0;
+        drawButton(rect, labels[static_cast<std::size_t>(i)], rect.contains(mouseX, mouseY), m_fontMedium, danger);
     }
 }
 
 void Renderer::drawPlaying(const app::GuiApp& app, int mouseX, int mouseY) const
 {
     const Game& game = *app.game();
+    // パネルを重ねている間は、下の盤面・手札にホバー表示を出さない
+    const bool covered = game.isOver() || app.overlay() != app::Overlay::None;
+    const int hoverX = covered ? -1 : mouseX;
+    const int hoverY = covered ? -1 : mouseY;
     drawCentered(app::hintRect(), app.hint(), color(kAccent), m_fontLarge);
     drawCentered(app::messageRect(), app.message(), color(kSubText), m_fontMedium);
-    const std::string seed = "seed " + std::to_string(app.seed());
-    drawText(kWindowWidth - 16 - textWidth(seed, m_fontSmall), kWindowHeight - 22, seed, color(kSubText),
-             m_fontSmall);
 
-    drawBoard(app, mouseX, mouseY);
+    drawBoard(app, hoverX, hoverY);
     drawPlayerPanel(app, Color::Black);
     drawPlayerPanel(app, Color::White);
-    drawHand(app, mouseX, mouseY);
+    drawHand(app, hoverX, hoverY);
     if (app.showsPassButton()) {
         const Rect pass = app::passButtonRect();
-        drawButton(pass, "パス", pass.contains(mouseX, mouseY), m_fontLarge, true);
+        drawButton(pass, "パス", pass.contains(hoverX, hoverY), m_fontLarge, true);
     }
+    drawMenuBar(app, mouseX, mouseY);
     if (game.isOver()) {
         drawResult(app, mouseX, mouseY);
+    } else if (app.overlay() != app::Overlay::None) {
+        drawOverlay(app, mouseX, mouseY);
     }
 }
 
@@ -341,8 +365,8 @@ void Renderer::drawHand(const app::GuiApp& app, int mouseX, int mouseY) const
 
         fillRect(card, kPanel);
         fillRect(Rect{card.x, card.y, 10, card.h}, cardColor(type));
-        drawText(card.x + 22, card.y + 8, info.name, color(kText), m_fontLarge);
-        drawText(card.x + 22, card.y + 44, info.description, color(kSubText), m_fontSmall);
+        drawText(card.x + 22, card.y + 4, info.name, color(kText), m_fontLarge);
+        drawText(card.x + 22, card.y + 38, info.description, color(kSubText), m_fontSmall);
 
         if (!usable) {
             withAlpha(150, [&] { fillRect(card, kBackground); });

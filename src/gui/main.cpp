@@ -1,8 +1,10 @@
 #include <DxLib.h>
 
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <random>
 #include <string_view>
 
@@ -13,6 +15,18 @@
 namespace {
 
 constexpr int kColorBits = 32;
+constexpr wchar_t kSaveFileName[] = L"cardflow_save.txt";
+
+// 中断データは実行ファイルと同じフォルダに置く
+std::filesystem::path savePath()
+{
+    std::array<wchar_t, 4096> buffer{};
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length == 0 || length >= buffer.size()) {
+        return std::filesystem::path{kSaveFileName};
+    }
+    return std::filesystem::path{buffer.data()}.parent_path() / kSaveFileName;
+}
 
 // 使い方: cardflow.exe [seed]
 //   seed を指定すると山札の並びが固定され、同じ展開を再現できる
@@ -66,10 +80,16 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int)
 
     {
         const cardflow::gui::Renderer renderer;
-        cardflow::app::GuiApp app(seedFromCommandLine());
+        cardflow::app::GuiApp app(seedFromCommandLine(), savePath());
         int last = GetNowCount();
+        bool escapeHeld = false;
         while (ProcessMessage() == 0 && !app.quitRequested()) {
             pollMouse(app);
+            const bool escape = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
+            if (escape && !escapeHeld) {
+                app.togglePause();
+            }
+            escapeHeld = escape;
             const int now = GetNowCount();
             app.update(now - last);
             last = now;

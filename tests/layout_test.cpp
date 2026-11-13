@@ -55,7 +55,8 @@ TEST(LayoutTest, OutsideBoardIsNoCell)
 
 TEST(LayoutTest, PlayingAreasFitAndDoNotOverlap)
 {
-    std::vector<Rect> areas{app::boardRect(),
+    std::vector<Rect> areas{app::menuBarRect(),
+                            app::boardRect(),
                             app::hintRect(),
                             app::messageRect(),
                             app::playerPanelRect(Color::Black),
@@ -83,6 +84,32 @@ TEST(LayoutTest, MenuButtonsFitAndDoNotOverlap)
         EXPECT_TRUE(insideWindow(buttons[i])) << i;
         for (std::size_t j = i + 1; j < buttons.size(); ++j) {
             EXPECT_FALSE(overlaps(buttons[i], buttons[j])) << i << " と " << j;
+        }
+    }
+}
+
+TEST(LayoutTest, MenuBarButtonsAreInsideBar)
+{
+    const Rect bar = app::menuBarRect();
+    for (int i = 0; i < layout::kMenuBarButtons; ++i) {
+        const Rect button = app::menuBarButtonRect(i);
+        EXPECT_TRUE(bar.contains(button.x, button.y));
+        EXPECT_TRUE(bar.contains(button.right() - 1, button.bottom() - 1));
+        if (i > 0) {
+            EXPECT_FALSE(overlaps(button, app::menuBarButtonRect(i - 1)));
+        }
+    }
+}
+
+TEST(LayoutTest, OverlayButtonsAreInsidePanel)
+{
+    const Rect panel = app::overlayPanelRect();
+    for (int i = 0; i < layout::kMaxOverlayButtons; ++i) {
+        const Rect button = app::overlayButtonRect(i);
+        EXPECT_TRUE(panel.contains(button.x, button.y));
+        EXPECT_TRUE(panel.contains(button.right() - 1, button.bottom() - 1));
+        if (i > 0) {
+            EXPECT_FALSE(overlaps(button, app::overlayButtonRect(i - 1)));
         }
     }
 }

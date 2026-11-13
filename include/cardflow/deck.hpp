@@ -18,9 +18,11 @@ public:
     // 標準構成の山札をシャッフルして作る（seed で再現可能）
     [[nodiscard]] static Deck createStandard(std::uint32_t seed);
 
-    // 任意の並びの山札を作る（テスト用）。末尾から引く
+    // 任意の並びの山札を作る（テスト・中断からの再開用）。末尾から引く
     explicit Deck(std::vector<CardType> pile) : m_pile(std::move(pile)) {}
 
+    // 残りの札（末尾が次に引く札）
+    [[nodiscard]] const std::vector<CardType>& cards() const noexcept { return m_pile; }
     [[nodiscard]] std::size_t size() const noexcept { return m_pile.size(); }
     [[nodiscard]] bool empty() const noexcept { return m_pile.empty(); }
 

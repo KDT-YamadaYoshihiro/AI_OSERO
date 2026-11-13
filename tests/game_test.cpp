@@ -217,4 +217,78 @@ TEST(GameTest, NoDrawWhenHandIsFull)
     EXPECT_EQ(game.deck().size(), 1u);
 }
 
+// ─── 投了 ────────────────────────────────────────────────────────────
+
+TEST(GameTest, ResignEndsGame)
+{
+    Game game = startInitial();
+    ASSERT_TRUE(game.resign(Color::Black));
+    ASSERT_TRUE(game.isOver());
+    EXPECT_EQ(game.result()->winner, Color::White);
+    EXPECT_EQ(game.result()->resignedBy, Color::Black);
+    EXPECT_EQ(game.result()->blackStones, 2);
+    EXPECT_FALSE(game.resign(Color::White));  // 終局後はできない
+}
+
+// ─── 中断・再開 ──────────────────────────────────────────────────────
+
+TEST(GameTest, StateRoundTripKeepsEverything)
+{
+    Game game = startInitial({CardType::Double, CardType::Flip}, {CardType::Guard, CardType::Free},
+                             {CardType::Wall, CardType::Free});
+    placeFirst(game);  // 黒
+    ASSERT_EQ(game.useCard(CardType::Guard, Position{4, 4}), CardStatus::Ok);  // 白 e5 を守る
+    const auto state = game.state();
+    ASSERT_TRUE(state.has_value());
+
+    auto restored = Game::restore(*state);
+    ASSERT_TRUE(restored.has_value());
+    EXPECT_EQ(restored->currentColor(), Color::White);
+    EXPECT_EQ(restored->turnNumber(), 2);
+    EXPECT_TRUE(restored->cardUsedThisTurn());
+    EXPECT_EQ(restored->hand(Color::Black), game.hand(Color::Black));
+    EXPECT_EQ(restored->hand(Color::White), game.hand(Color::White));
+    EXPECT_EQ(restored->deck().cards(), game.deck().cards());
+    EXPECT_EQ(restored->lastPlaced(), game.lastPlaced());
+    EXPECT_TRUE(restored->board().stoneAt(Position{4, 4})->guarded);
+    EXPECT_EQ(restored->placeableCells(), game.placeableCells());
+
+    // 再開後も同じように進む
+    placeFirst(game);
+    placeFirst(*restored);
+    EXPECT_EQ(restored->state()->board.countStones(Color::Black), game.board().countStones(Color::Black));
+    EXPECT_EQ(restored->currentColor(), game.currentColor());
+}
+
+TEST(GameTest, StateIsEmptyAfterGameOver)
+{
+    Game game = startInitial();
+    ASSERT_TRUE(game.resign(Color::White));
+    EXPECT_FALSE(game.state().has_value());
+}
+
+TEST(GameTest, RestoreRejectsInconsistentState)
+{
+    const auto base = startInitial().state().value();
+
+    auto placedWithoutCard = base;
+    placedWithoutCard.placed = 1;  // カードなしで置いた後に同じ番は続かない
+    EXPECT_FALSE(Game::restore(placedWithoutCard).has_value());
+
+    auto tooManyCards = base;
+    tooManyCards.hands[0] = {CardType::Wall, CardType::Wall, CardType::Wall, CardType::Wall};
+    EXPECT_FALSE(Game::restore(tooManyCards).has_value());
+
+    auto lastOnEmpty = base;
+    lastOnEmpty.lastPlaced = Position{0, 0};  // 石のないマス
+    EXPECT_FALSE(Game::restore(lastOnEmpty).has_value());
+
+    auto finished = base;
+    finished.board = makeBoard({"B.......", "........", "........", "........", "........", "........",
+                                "........", "........"});  // 白が 0 個
+    EXPECT_FALSE(Game::restore(finished).has_value());
+
+    EXPECT_TRUE(Game::restore(base).has_value());
+}
+
 } // namespace

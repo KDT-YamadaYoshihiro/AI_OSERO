@@ -19,10 +19,10 @@ public:
     void draw(const app::GuiApp& app, int mouseX, int mouseY) const;
 
 private:
-    void drawTitle(int mouseX, int mouseY) const;
-    void drawMenu(std::string_view heading, const char* const* labels, int count, bool withBack, int mouseX,
-                  int mouseY) const;
+    void drawMenuScreen(const app::GuiApp& app, int mouseX, int mouseY) const;
     void drawPlaying(const app::GuiApp& app, int mouseX, int mouseY) const;
+    void drawMenuBar(const app::GuiApp& app, int mouseX, int mouseY) const;
+    void drawOverlay(const app::GuiApp& app, int mouseX, int mouseY) const;
     void drawBoard(const app::GuiApp& app, int mouseX, int mouseY) const;
     void drawPlayerPanel(const app::GuiApp& app, Color color) const;
     void drawHand(const app::GuiApp& app, int mouseX, int mouseY) const;

@@ -1,9 +1,11 @@
 #include "cardflow/app/gui_app.hpp"
 
 #include <algorithm>
+#include <system_error>
 #include <utility>
 
 #include "cardflow/app/layout.hpp"
+#include "cardflow/app/save_data.hpp"
 #include "cardflow/app/text.hpp"
 
 namespace cardflow::app {
@@ -18,20 +20,91 @@ bool containsPosition(const std::vector<Position>& list, Position pos)
     return std::ranges::find(list, pos) != list.end();
 }
 
-// メニュー画面でクリックされたボタン（なければ -1）
-int menuIndexAt(int x, int y, int buttons)
+// rectOf(0..count-1) のうち、クリックされたもの（なければ -1）
+template <typename RectOf>
+int indexAt(int x, int y, int count, RectOf rectOf)
 {
-    for (int i = 0; i < buttons; ++i) {
-        if (menuButtonRect(i).contains(x, y)) {
+    for (int i = 0; i < count; ++i) {
+        if (rectOf(i).contains(x, y)) {
             return i;
         }
     }
     return -1;
 }
 
+int menuIndexAt(int x, int y, int buttons)
+{
+    return indexAt(x, y, buttons, menuButtonRect);
+}
+
+bool fileExists(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    return !path.empty() && std::filesystem::is_regular_file(path, ec);
+}
+
+void removeFile(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 } // namespace
 
-GuiApp::GuiApp(std::uint32_t seed) : m_seed(seed), m_nextSeed(seed), m_seedRng(seed) {}
+GuiApp::GuiApp(std::uint32_t seed, std::filesystem::path savePath)
+    : m_seed(seed), m_nextSeed(seed), m_seedRng(seed), m_savePath(std::move(savePath)), m_hasSave(fileExists(m_savePath))
+{
+}
+
+// ─── メニュー画面 ────────────────────────────────────────────────────
+
+std::vector<GuiApp::TitleItem> GuiApp::titleItems() const
+{
+    std::vector<TitleItem> items;
+    if (m_hasSave) {
+        items.push_back(TitleItem::Resume);
+    }
+    items.insert(items.end(), {TitleItem::TwoPlayer, TitleItem::VersusCpu, TitleItem::Quit});
+    return items;
+}
+
+std::vector<std::string> GuiApp::menuLabels() const
+{
+    switch (m_screen) {
+    case Screen::Title: {
+        std::vector<std::string> labels;
+        for (const auto item : titleItems()) {
+            switch (item) {
+            case TitleItem::Resume: labels.emplace_back("続きから"); break;
+            case TitleItem::TwoPlayer: labels.emplace_back("2人対戦"); break;
+            case TitleItem::VersusCpu: labels.emplace_back("CPU対戦"); break;
+            case TitleItem::Quit: labels.emplace_back("終了"); break;
+            }
+        }
+        return labels;
+    }
+    case Screen::Difficulty: return {"弱い", "普通", "強い"};
+    case Screen::ColorSelect: return {"黒（先手）", "白（後手）"};
+    case Screen::Playing: return {};
+    }
+    return {};
+}
+
+std::string GuiApp::menuHeading() const
+{
+    switch (m_screen) {
+    case Screen::Difficulty: return "CPU の強さを選んでください";
+    case Screen::ColorSelect: return "あなたの色を選んでください";
+    case Screen::Title:
+    case Screen::Playing: return "";
+    }
+    return "";
+}
+
+bool GuiApp::showsBackButton() const noexcept
+{
+    return m_screen == Screen::Difficulty || m_screen == Screen::ColorSelect;
+}
 
 // ─── 状態の参照 ──────────────────────────────────────────────────────
 
@@ -80,7 +153,37 @@ bool GuiApp::isCardUsable(int slot) const noexcept
 
 bool GuiApp::showsPassButton() const noexcept
 {
-    return isHumanTurn() && m_mustPass;
+    return isHumanTurn() && m_mustPass && m_overlay == Overlay::None;
+}
+
+bool GuiApp::showsMenuBar() const noexcept
+{
+    return m_screen == Screen::Playing && m_game.has_value() && !m_game->isOver();
+}
+
+std::vector<std::string> GuiApp::menuBarLabels()
+{
+    return {"一時停止", "中断して終わる", "投了"};
+}
+
+std::string GuiApp::overlayTitle() const
+{
+    switch (m_overlay) {
+    case Overlay::Paused: return "一時停止中";
+    case Overlay::ConfirmResign: return "投了しますか？";
+    case Overlay::None: return "";
+    }
+    return "";
+}
+
+std::vector<std::string> GuiApp::overlayLabels() const
+{
+    switch (m_overlay) {
+    case Overlay::Paused: return {"再開", "中断して終わる", "投了"};
+    case Overlay::ConfirmResign: return {"はい（投了する）", "いいえ"};
+    case Overlay::None: return {};
+    }
+    return {};
 }
 
 std::optional<CardType> GuiApp::selectedCard() const
@@ -143,6 +246,9 @@ std::string GuiApp::resultText() const
         return "";
     }
     const auto& result = *m_game->result();
+    if (result.resignedBy.has_value()) {
+        return playerLabel(*result.resignedBy) + "が投了 … " + playerLabel(opponentOf(*result.resignedBy)) + "の勝ち！";
+    }
     std::string text = "黒 " + std::to_string(result.blackStones) + " 対 白 " + std::to_string(result.whiteStones) + " … ";
     if (result.winner.has_value()) {
         text += playerLabel(*result.winner) + "の勝ち！";
@@ -175,14 +281,28 @@ void GuiApp::cancel()
         m_screen = Screen::Difficulty;
         break;
     case Screen::Playing:
-        clearSelection();
+        if (m_overlay != Overlay::None) {
+            m_overlay = Overlay::None;
+        } else {
+            clearSelection();
+        }
         break;
     }
 }
 
+void GuiApp::togglePause()
+{
+    if (!showsMenuBar()) {
+        return;
+    }
+    clearSelection();
+    m_overlay = m_overlay == Overlay::None ? Overlay::Paused : Overlay::None;
+}
+
 void GuiApp::update(int elapsedMs)
 {
-    if (m_screen != Screen::Playing || !m_game.has_value() || m_game->isOver() || !m_autoPending) {
+    if (m_screen != Screen::Playing || !m_game.has_value() || m_game->isOver() || !m_autoPending ||
+        m_overlay != Overlay::None) {
         m_waitMs = 0;
         return;
     }
@@ -196,22 +316,29 @@ void GuiApp::update(int elapsedMs)
 void GuiApp::clickMenu(int x, int y)
 {
     switch (m_screen) {
-    case Screen::Title:
-        switch (menuIndexAt(x, y, 3)) {
-        case 0:
+    case Screen::Title: {
+        const auto items = titleItems();
+        const int index = menuIndexAt(x, y, static_cast<int>(items.size()));
+        if (index < 0) {
+            break;
+        }
+        switch (items[static_cast<std::size_t>(index)]) {
+        case TitleItem::Resume:
+            resumeSaved();
+            break;
+        case TitleItem::TwoPlayer:
             m_options = GameOptions{};
             startNewGame();
             break;
-        case 1:
+        case TitleItem::VersusCpu:
             m_screen = Screen::Difficulty;
             break;
-        case 2:
+        case TitleItem::Quit:
             m_quit = true;
-            break;
-        default:
             break;
         }
         break;
+    }
     case Screen::Difficulty:
         if (const int index = menuIndexAt(x, y, 3); index >= 0) {
             m_options.difficulty = static_cast<ai::Difficulty>(index);
@@ -243,10 +370,30 @@ void GuiApp::clickPlaying(int x, int y)
         if (retryButtonRect().contains(x, y)) {
             startNewGame();
         } else if (toTitleButtonRect().contains(x, y)) {
-            m_game.reset();
-            m_screen = Screen::Title;
+            goToTitle("");
         }
         return;
+    }
+    if (m_overlay != Overlay::None) {
+        const int index = indexAt(x, y, static_cast<int>(overlayLabels().size()), overlayButtonRect);
+        if (index >= 0) {
+            clickOverlay(index);
+        }
+        return;
+    }
+    switch (indexAt(x, y, layout::kMenuBarButtons, menuBarButtonRect)) {
+    case 0:
+        togglePause();
+        return;
+    case 1:
+        suspend();
+        return;
+    case 2:
+        clearSelection();
+        m_overlay = Overlay::ConfirmResign;
+        return;
+    default:
+        break;
     }
     if (!isHumanTurn()) {
         return;
@@ -295,6 +442,8 @@ void GuiApp::startGame(Game game, const GameOptions& options)
         m_cpu.emplace(m_options.difficulty, m_seed ^ kCpuSeedSalt);
     }
     m_screen = Screen::Playing;
+    m_overlay = Overlay::None;
+    m_notice.clear();
     m_message = "対戦開始！ 黒が先手です";
     m_waitMs = 0;
     clearSelection();
@@ -305,6 +454,79 @@ void GuiApp::startNewGame()
 {
     m_seed = m_nextSeed;
     startGame(Game(m_seed), m_options);
+}
+
+void GuiApp::clickOverlay(int index)
+{
+    if (m_overlay == Overlay::Paused) {
+        switch (index) {
+        case 0: m_overlay = Overlay::None; break;
+        case 1: suspend(); break;
+        case 2: m_overlay = Overlay::ConfirmResign; break;
+        default: break;
+        }
+    } else if (m_overlay == Overlay::ConfirmResign) {
+        if (index == 0) {
+            resign();
+        } else {
+            m_overlay = Overlay::None;
+        }
+    }
+}
+
+// 中断データを読み込んで再開する（読み込んだデータは消す）
+void GuiApp::resumeSaved()
+{
+    const auto data = readSaveFile(m_savePath);
+    std::optional<Game> game;
+    if (data.has_value()) {
+        game = Game::restore(data->game);
+    }
+    removeFile(m_savePath);
+    m_hasSave = false;
+    if (!game.has_value()) {
+        m_notice = "中断データを読み込めませんでした";
+        return;
+    }
+    m_seed = data->seed;
+    startGame(std::move(*game), data->options);
+    m_message = "中断した対戦を再開しました";
+}
+
+// 対戦を保存してタイトルへ戻る
+void GuiApp::suspend()
+{
+    const auto state = m_game->state();
+    if (m_savePath.empty() || !state.has_value() ||
+        !writeSaveFile(m_savePath, SaveData{*state, m_options, m_seed})) {
+        m_overlay = Overlay::None;
+        m_message = "中断データを保存できませんでした";
+        return;
+    }
+    m_hasSave = true;
+    goToTitle("対戦を中断しました。「続きから」で再開できます");
+}
+
+// 投了する（CPU 対戦ではあなた、2 人対戦では手番の人）
+void GuiApp::resign()
+{
+    const Color who = m_options.cpuColor.has_value() ? opponentOf(*m_options.cpuColor) : m_game->currentColor();
+    m_overlay = Overlay::None;
+    clearSelection();
+    if (m_game->resign(who)) {
+        m_message = playerLabel(who) + "が投了しました";
+    }
+    refresh();
+}
+
+void GuiApp::goToTitle(std::string notice)
+{
+    m_game.reset();
+    m_cpu.reset();
+    m_overlay = Overlay::None;
+    clearSelection();
+    m_screen = Screen::Title;
+    m_notice = std::move(notice);
 }
 
 void GuiApp::selectSlot(int slot)
