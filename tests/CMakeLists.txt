@@ -15,19 +15,19 @@ FetchContent_MakeAvailable(googletest)
 add_executable(cardflow_tests
     ai_test.cpp
     board_test.cpp
-    board_view_test.cpp
     card_effects_test.cpp
     card_test.cpp
-    command_test.cpp
-    console_game_test.cpp
     deck_test.cpp
     game_test.cpp
+    gui_app_test.cpp
+    layout_test.cpp
     player_test.cpp
     rules_test.cpp
+    text_test.cpp
 )
 target_link_libraries(cardflow_tests PRIVATE
     cardflow_core
-    cardflow_ui
+    cardflow_app
     cardflow_warnings
     GTest::gtest_main
 )

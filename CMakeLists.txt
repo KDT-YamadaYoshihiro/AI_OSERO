@@ -29,22 +29,32 @@ add_library(cardflow_core STATIC
 target_include_directories(cardflow_core PUBLIC include)
 target_link_libraries(cardflow_core PRIVATE cardflow_warnings)
 
-# ─── コンソール描画 ──────────────────────────────────────────────────
-add_library(cardflow_ui STATIC
-    src/ui/board_view.cpp
-    src/ui/command.cpp
-    src/ui/console_game.cpp
+# ─── GUI の状態と画面配置（描画ライブラリ非依存）────────────────────
+add_library(cardflow_app STATIC
+    src/app/gui_app.cpp
+    src/app/layout.cpp
+    src/app/text.cpp
 )
-target_link_libraries(cardflow_ui
+target_link_libraries(cardflow_app
     PUBLIC cardflow_core
     PRIVATE cardflow_warnings
 )
 
-# ─── 実行ファイル ────────────────────────────────────────────────────
-add_executable(cardflow src/main.cpp)
-target_link_libraries(cardflow PRIVATE cardflow_ui cardflow_warnings)
-if(WIN32)
+# ─── 実行ファイル（DxLib による GUI）────────────────────────────────
+# DxLib は third_party/dxlib/ に「プロジェクトに追加すべきファイル_VC用」の中身を置く（git 管理外）。
+# ライブラリは DxLib.h の #pragma comment(lib) で自動的にリンクされる。
+set(CARDFLOW_DXLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/dxlib" CACHE PATH "DxLib（VC 用）のフォルダ")
+if(WIN32 AND MSVC AND EXISTS "${CARDFLOW_DXLIB_DIR}/DxLib.h")
+    add_executable(cardflow WIN32
+        src/gui/main.cpp
+        src/gui/renderer.cpp
+    )
+    target_include_directories(cardflow SYSTEM PRIVATE "${CARDFLOW_DXLIB_DIR}")
+    target_link_directories(cardflow PRIVATE "${CARDFLOW_DXLIB_DIR}")
     target_compile_definitions(cardflow PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cardflow PRIVATE cardflow_app cardflow_warnings)
+else()
+    message(WARNING "DxLib が見つからないため GUI（cardflow）はビルドしません: ${CARDFLOW_DXLIB_DIR}")
 endif()
 
 # ─── テスト ──────────────────────────────────────────────────────────

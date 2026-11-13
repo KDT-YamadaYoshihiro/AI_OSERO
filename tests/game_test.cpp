@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "board_builder.hpp"
+#include "deck_builder.hpp"
 #include "cardflow/game.hpp"
 
 using cardflow::Board;
@@ -16,23 +17,11 @@ using cardflow::Game;
 using cardflow::PlayStatus;
 using cardflow::Position;
 using cardflow::test::makeBoard;
+using cardflow::test::scriptedDeck;
 
 namespace {
 
 using Targets = std::vector<Position>;
-
-// 末尾から 黒 3 枚 → 白 3 枚 の順に配られ、残り（先頭側）が補充に使われる山札
-Deck scriptedDeck(std::vector<CardType> black, std::vector<CardType> white, std::vector<CardType> rest)
-{
-    std::vector<CardType> pile = rest;
-    for (auto it = white.rbegin(); it != white.rend(); ++it) {
-        pile.push_back(*it);
-    }
-    for (auto it = black.rbegin(); it != black.rend(); ++it) {
-        pile.push_back(*it);
-    }
-    return Deck(pile, 0);
-}
 
 std::size_t totalCards(const Game& game)
 {
