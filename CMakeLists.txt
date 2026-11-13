@@ -19,6 +19,7 @@ endif()
 add_library(cardflow_core STATIC
     src/core/board.cpp
     src/core/card.cpp
+    src/core/card_effects.cpp
     src/core/player.cpp
     src/core/rules.cpp
 )

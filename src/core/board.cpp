@@ -160,4 +160,18 @@ bool Board::swapStones(Position a, Position b)
     return true;
 }
 
+int Board::setCoverAll(Color color, bool covered)
+{
+    int count = 0;
+    for (auto& row : m_cells) {
+        for (auto& cell : row) {
+            if (auto* stone = std::get_if<Stone>(&cell); stone != nullptr && stone->color == color) {
+                stone->covered = covered;
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
 } // namespace cardflow

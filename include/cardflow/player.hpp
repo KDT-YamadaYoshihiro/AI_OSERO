@@ -35,10 +35,26 @@ public:
     // 該当カードを 1 枚取り除く。持っていなければ false
     [[nodiscard]] bool removeCard(CardType type);
 
+    // ─── Reserve（次ターンの Place 追加）────────────────────────────────
+    static constexpr int kMaxReservedPlaces = 2;
+
+    // 次のターンに追加される Place の予約数
+    [[nodiscard]] int reservedPlaces() const noexcept { return m_reservedPlaces; }
+    // このターンだけ使える追加 Place の枚数（手札上限とは別枠）
+    [[nodiscard]] int bonusPlaces() const noexcept { return m_bonusPlaces; }
+    // 予約を加える（合計は最大 2）
+    void reservePlaces(int count) noexcept;
+    // ターン開始時: 前ターンの追加分を破棄し、予約分を追加分に移す
+    void activateReservedPlaces() noexcept;
+    // 追加 Place を 1 枚使う。なければ false
+    [[nodiscard]] bool consumeBonusPlace() noexcept;
+
 private:
     Color m_color;
     int m_ep = 0;
     std::vector<CardType> m_hand;
+    int m_reservedPlaces = 0;
+    int m_bonusPlaces = 0;
 };
 
 } // namespace cardflow

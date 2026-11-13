@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(cardflow_tests
     board_test.cpp
     board_view_test.cpp
+    card_effects_test.cpp
     card_test.cpp
     player_test.cpp
     rules_test.cpp

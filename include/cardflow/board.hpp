@@ -64,6 +64,8 @@ public:
     [[nodiscard]] bool moveStone(Position from, Position to);
     // 2 つの石を入れ替える
     [[nodiscard]] bool swapStones(Position a, Position b);
+    // color の石すべてに Cover を付与／解除し、対象になった石の数を返す
+    int setCoverAll(Color color, bool covered);
 
 private:
     using Cell = std::variant<std::monostate, Stone, Wall>;
