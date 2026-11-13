@@ -20,6 +20,7 @@ add_library(cardflow_core STATIC
     src/core/board.cpp
     src/core/card.cpp
     src/core/player.cpp
+    src/core/rules.cpp
 )
 target_include_directories(cardflow_core PUBLIC include)
 target_link_libraries(cardflow_core PRIVATE cardflow_warnings)

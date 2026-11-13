@@ -17,6 +17,7 @@ add_executable(cardflow_tests
     board_view_test.cpp
     card_test.cpp
     player_test.cpp
+    rules_test.cpp
 )
 target_link_libraries(cardflow_tests PRIVATE
     cardflow_core
