@@ -17,6 +17,10 @@ add_executable(cardflow_tests
     board_view_test.cpp
     card_effects_test.cpp
     card_test.cpp
+    command_test.cpp
+    console_game_test.cpp
+    deck_test.cpp
+    game_test.cpp
     player_test.cpp
     rules_test.cpp
 )

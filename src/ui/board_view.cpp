@@ -12,6 +12,9 @@ std::string_view cellGlyph(const Board& board, Position pos)
         return "■";
     }
     if (const auto stone = board.stoneAt(pos)) {
+        if (stone->isProtected()) {
+            return stone->color == Color::Black ? "◉" : "◎";
+        }
         return stone->color == Color::Black ? "●" : "○";
     }
     return "・";

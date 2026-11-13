@@ -33,4 +33,14 @@ TEST(BoardViewTest, RendersWall)
     EXPECT_NE(renderBoard(board).find("1 ・・・・・・・■\n"), std::string::npos);
 }
 
+TEST(BoardViewTest, RendersProtectedStones)
+{
+    Board board;
+    ASSERT_TRUE(board.placeStone({0, 0}, Color::Black));
+    ASSERT_TRUE(board.placeStone({0, 1}, Color::White));
+    ASSERT_TRUE(board.replaceStone({0, 0}, cardflow::Stone{.color = Color::Black, .covered = true}));
+    ASSERT_TRUE(board.replaceStone({0, 1}, cardflow::Stone{.color = Color::White, .shielded = true}));
+    EXPECT_NE(renderBoard(board).find("1 ◉◎・・・・・・\n"), std::string::npos);
+}
+
 } // namespace

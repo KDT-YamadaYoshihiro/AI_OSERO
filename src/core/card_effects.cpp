@@ -116,6 +116,31 @@ bool canApplyEffect(CardType type, const Board& board, const Player& actor, std:
     return false;
 }
 
+bool hasValidTarget(CardType type, const Board& board, const Player& actor)
+{
+    const int count = targetCount(type);
+    if (count == 0) {
+        return canApplyEffect(type, board, actor, {});
+    }
+    for (int a = 0; a < Board::kSize * Board::kSize; ++a) {
+        const Position first{a / Board::kSize, a % Board::kSize};
+        if (count == 1) {
+            const std::array<Position, 1> targets{first};
+            if (canApplyEffect(type, board, actor, targets)) {
+                return true;
+            }
+            continue;
+        }
+        for (int b = 0; b < Board::kSize * Board::kSize; ++b) {
+            const std::array<Position, 2> targets{first, Position{b / Board::kSize, b % Board::kSize}};
+            if (canApplyEffect(type, board, actor, targets)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 PlayResult applyEffect(CardType type, Board& board, Player& actor, std::span<const Position> targets)
 {
     PlayResult result;
